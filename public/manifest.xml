@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  EA BookIQ - Outlook Add-in Manifest
+  
+  This add-in helps executive assistants book conference rooms.
+  It uses the add-in only manifest format for broadest Outlook client support.
+  
+  Before deploying:
+  1. Replace YOUR_APP_URL with your actual hosted URL
+  2. Generate a new UUID for the Id field
+  3. Update SupportUrl with your support contact
+  4. Register the app in Microsoft Entra and update MSAL config
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+  xsi:type="MailApp">
+
+  <!-- Basic Add-in Information -->
+  <Id>a1b2c3d4-e5f6-7890-abcd-ef1234567890</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Aditum Bio</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="EA BookIQ" />
+  <Description DefaultValue="Intelligent conference room booking for executive assistants. Automatically identifies your office location and shows available rooms for your meeting time." />
+  <IconUrl DefaultValue="https://YOUR_APP_URL/icons/icon-64.png" />
+  <HighResolutionIconUrl DefaultValue="https://YOUR_APP_URL/icons/icon-128.png" />
+  <SupportUrl DefaultValue="https://YOUR_APP_URL/support" />
+
+  <!-- App Domains -->
+  <AppDomains>
+    <AppDomain>https://YOUR_APP_URL</AppDomain>
+    <AppDomain>https://login.microsoftonline.com</AppDomain>
+  </AppDomains>
+
+  <!-- Hosts - Outlook only -->
+  <Hosts>
+    <Host Name="Mailbox" />
+  </Hosts>
+
+  <!-- Requirements - Mailbox 1.8 for enhanced location support -->
+  <Requirements>
+    <Sets>
+      <Set Name="Mailbox" MinVersion="1.8" />
+    </Sets>
+  </Requirements>
+
+  <!-- Form Settings - Appointment Compose mode only -->
+  <FormSettings>
+    <Form xsi:type="ItemEdit">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://YOUR_APP_URL/taskpane" />
+        <RequestedHeight>600</RequestedHeight>
+      </DesktopSettings>
+      <TabletSettings>
+        <SourceLocation DefaultValue="https://YOUR_APP_URL/taskpane" />
+        <RequestedHeight>600</RequestedHeight>
+      </TabletSettings>
+    </Form>
+  </FormSettings>
+
+  <!-- Permissions - Read/Write access to items -->
+  <Permissions>ReadWriteItem</Permissions>
+
+  <!-- Rule for when the add-in activates - Appointment Organizer Compose mode -->
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Appointment" FormType="Edit" />
+  </Rule>
+
+  <!-- Disable on send - we don't need to run when sending -->
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+
+  <!-- Version Overrides for modern command surface -->
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides/1.1" xsi:type="VersionOverridesV1_1">
+      
+      <!-- Requirements for version overrides -->
+      <Requirements>
+        <bt:Sets DefaultMinVersion="1.8">
+          <bt:Set Name="Mailbox" />
+        </bt:Sets>
+      </Requirements>
+
+      <!-- Hosts configuration -->
+      <Hosts>
+        <Host xsi:type="MailHost">
+          
+          <!-- Desktop Form Factor -->
+          <DesktopFormFactor>
+            
+            <!-- Function File for event-based activation -->
+            <FunctionFile resid="functionFile" />
+
+            <!-- Extension Point: Appointment Organizer Command Surface -->
+            <ExtensionPoint xsi:type="AppointmentOrganizerCommandSurface">
+              
+              <!-- Office Tab -->
+              <OfficeTab id="TabDefault">
+                <Group id="roomAssistGroup">
+                  <Label resid="groupLabel" />
+                  
+                  <!-- Task Pane Button -->
+                  <Control xsi:type="Button" id="openTaskPane">
+                    <Label resid="taskpaneButtonLabel" />
+                    <Supertip>
+                      <Title resid="taskpaneButtonLabel" />
+                      <Description resid="taskpaneButtonDescription" />
+                    </Supertip>
+                    <Icon>
+                      <bt:Image size="16" resid="icon16" />
+                      <bt:Image size="32" resid="icon32" />
+                      <bt:Image size="80" resid="icon80" />
+                    </Icon>
+                    <Action xsi:type="ShowTaskpane">
+                      <SourceLocation resid="taskpaneUrl" />
+                    </Action>
+                  </Control>
+                </Group>
+              </OfficeTab>
+            </ExtensionPoint>
+
+            <!-- Extension Point: Launch Events (Event-based activation) -->
+            <ExtensionPoint xsi:type="LaunchEvent">
+              <LaunchEvents>
+                <LaunchEvent Type="OnNewAppointmentOrganizer" FunctionName="onNewAppointmentOrganizer" />
+              </LaunchEvents>
+              <SourceLocation resid="launchEventUrl" />
+            </ExtensionPoint>
+
+          </DesktopFormFactor>
+
+          <!-- Mobile Form Factor (optional) -->
+          <MobileFormFactor>
+            <ExtensionPoint xsi:type="MobileMessageReadCommandSurface">
+              <!-- Note: Mobile support limited for appointment compose -->
+            </ExtensionPoint>
+          </MobileFormFactor>
+
+        </Host>
+      </Hosts>
+
+      <!-- Resources -->
+      <Resources>
+        <bt:Images>
+          <bt:Image id="icon16" DefaultValue="https://YOUR_APP_URL/icons/icon-16.png" />
+          <bt:Image id="icon32" DefaultValue="https://YOUR_APP_URL/icons/icon-32.png" />
+          <bt:Image id="icon80" DefaultValue="https://YOUR_APP_URL/icons/icon-80.png" />
+        </bt:Images>
+        <bt:Urls>
+          <bt:Url id="taskpaneUrl" DefaultValue="https://YOUR_APP_URL/taskpane" />
+          <bt:Url id="functionFile" DefaultValue="https://YOUR_APP_URL/functions.html" />
+          <bt:Url id="launchEventUrl" DefaultValue="https://YOUR_APP_URL/launchevent.js" />
+        </bt:Urls>
+        <bt:ShortStrings>
+          <bt:String id="groupLabel" DefaultValue="EA BookIQ" />
+          <bt:String id="taskpaneButtonLabel" DefaultValue="Book Room" />
+        </bt:ShortStrings>
+        <bt:LongStrings>
+          <bt:String id="taskpaneButtonDescription" DefaultValue="Open EA BookIQ to find and book available conference rooms for your meeting." />
+        </bt:LongStrings>
+      </Resources>
+
+    </VersionOverrides>
+  </VersionOverrides>
+
+</OfficeApp>
