@@ -14,33 +14,61 @@ interface GroupMembershipResponse {
 }
 
 /**
- * Get the user's transitive group memberships
+ * Get the user's group memberships (both direct and transitive)
+ * Tries multiple approaches since mail-enabled security groups may not appear in all queries
  */
-export async function getTransitiveGroupMemberships(): Promise<GraphGroup[]> {
+export async function getUserGroupMemberships(): Promise<GraphGroup[]> {
   const client = await getGraphClient();
+  const allGroups: Map<string, GraphGroup> = new Map();
 
-  const response: GroupMembershipResponse = await client
-    .api("/me/transitiveMemberOf/microsoft.graph.group")
-    .select("id,displayName,mail,securityEnabled,mailEnabled")
-    .header("ConsistencyLevel", "eventual")
-    .get();
+  // Approach 1: Try memberOf (direct memberships)
+  try {
+    const directResponse: GroupMembershipResponse = await client
+      .api("/me/memberOf/microsoft.graph.group")
+      .select("id,displayName,mail,securityEnabled,mailEnabled")
+      .get();
+
+    console.log("[v0] Direct memberOf groups:", directResponse.value.length);
+    directResponse.value.forEach(g => allGroups.set(g.id, g));
+  } catch (err) {
+    console.log("[v0] memberOf query failed:", err);
+  }
+
+  // Approach 2: Try transitiveMemberOf with ConsistencyLevel header
+  try {
+    const transitiveResponse: GroupMembershipResponse = await client
+      .api("/me/transitiveMemberOf/microsoft.graph.group")
+      .select("id,displayName,mail,securityEnabled,mailEnabled")
+      .header("ConsistencyLevel", "eventual")
+      .count(true)
+      .get();
+
+    console.log("[v0] Transitive memberOf groups:", transitiveResponse.value.length);
+    transitiveResponse.value.forEach(g => allGroups.set(g.id, g));
+  } catch (err) {
+    console.log("[v0] transitiveMemberOf query failed:", err);
+  }
+
+  const groups = Array.from(allGroups.values());
 
   // Debug: Log all groups returned
-  console.log("[v0] All group memberships:", response.value.map(g => ({
+  console.log("[v0] All group memberships:", groups.map(g => ({
     displayName: g.displayName,
     mail: g.mail,
-    id: g.id
+    id: g.id,
+    mailEnabled: g.mailEnabled,
+    securityEnabled: g.securityEnabled
   })));
 
-  return response.value;
+  return groups;
 }
 
 /**
  * Determine which office(s) the user belongs to based on group membership
- * Matches by email address OR display name containing the office identifier
+ * Matches by email address OR display name
  */
 export async function resolveUserOffices(): Promise<OfficeConfig[]> {
-  const groups = await getTransitiveGroupMemberships();
+  const groups = await getUserGroupMemberships();
   const matchedOffices: OfficeConfig[] = [];
 
   for (const config of Object.values(OFFICE_CONFIGS)) {
@@ -48,11 +76,17 @@ export async function resolveUserOffices(): Promise<OfficeConfig[]> {
     const groupNamePattern = config.securityGroupEmail.split("@")[0].toLowerCase();
 
     const isMatch = groups.some((group) => {
-      // Match by mail address
+      // Match by mail address (exact match)
       const mailMatch = group.mail?.toLowerCase() === config.securityGroupEmail.toLowerCase();
-      // Match by displayName containing the pattern (e.g., "EA-Cambridge" or "EA Cambridge")
-      const nameMatch = group.displayName?.toLowerCase().includes(groupNamePattern) ||
-        group.displayName?.toLowerCase().includes(groupNamePattern.replace("-", " "));
+
+      // Match by displayName (e.g., "EA-Cambridge", "EA Cambridge", "EA_Cambridge")
+      const displayNameLower = group.displayName?.toLowerCase() || "";
+      const nameMatch =
+        displayNameLower === groupNamePattern ||
+        displayNameLower === groupNamePattern.replace("-", "") ||
+        displayNameLower === groupNamePattern.replace("-", " ") ||
+        displayNameLower === groupNamePattern.replace("-", "_") ||
+        displayNameLower.includes(groupNamePattern);
 
       if (mailMatch || nameMatch) {
         console.log("[v0] Matched group for", config.name, ":", {

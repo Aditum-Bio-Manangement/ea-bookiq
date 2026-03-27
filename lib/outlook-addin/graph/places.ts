@@ -72,36 +72,66 @@ export async function getRoomsByBuilding(building: string): Promise<Room[]> {
   } catch {
     // Filter might not be supported, fall back to getting all rooms
     console.warn(
-      "[Room Assist] Building filter not supported, fetching all rooms"
+      "[EA BookIQ] Building filter not supported, fetching all rooms"
     );
     return getAllRoomsForOffice(building);
   }
 }
 
 /**
+ * Get all rooms from the tenant
+ */
+export async function getAllRooms(): Promise<Room[]> {
+  const client = await getGraphClient();
+
+  try {
+    const response: PlacesResponse<Room> = await client
+      .api("/places/microsoft.graph.room")
+      .top(100)
+      .get();
+
+    console.log("[v0] All rooms from Graph API:", response.value.map(r => ({
+      displayName: r.displayName,
+      emailAddress: r.emailAddress,
+      building: r.building
+    })));
+
+    return response.value.map(normalizeRoom);
+  } catch (err) {
+    console.error("[v0] Failed to get rooms:", err);
+    return [];
+  }
+}
+
+/**
  * Get rooms for an office configuration
- * Tries room list first, then falls back to building filter
+ * Filters rooms by display name containing the office location (e.g., "- Cambridge", "- Oakland")
  */
 export async function getRoomsForOffice(office: OfficeConfig): Promise<Room[]> {
-  // If we have a room list ID, use it
-  if (office.roomListId) {
-    return getRoomsFromRoomList(office.roomListId);
-  }
+  // Get all rooms and filter by location in display name
+  const allRooms = await getAllRooms();
 
-  // Try to find a room list matching the office
-  const roomLists = await getRoomLists();
-  const matchingList = roomLists.find(
-    (list) =>
-      list.displayName.toLowerCase().includes(office.name.toLowerCase()) ||
-      list.emailAddress.toLowerCase().includes(office.name.toLowerCase())
-  );
+  const locationPattern = office.name.toLowerCase();
 
-  if (matchingList) {
-    return getRoomsFromRoomList(matchingList.id);
-  }
+  const filteredRooms = allRooms.filter((room) => {
+    const displayNameLower = room.displayName.toLowerCase();
+    const buildingLower = (room.building || "").toLowerCase();
 
-  // Fall back to building filter
-  return getRoomsByBuilding(office.building);
+    // Match by display name containing location (e.g., "Board Room - Cambridge")
+    const nameMatch =
+      displayNameLower.includes(`- ${locationPattern}`) ||
+      displayNameLower.includes(`-${locationPattern}`) ||
+      displayNameLower.endsWith(locationPattern);
+
+    // Also match by building field if populated
+    const buildingMatch = buildingLower === locationPattern;
+
+    return nameMatch || buildingMatch;
+  });
+
+  console.log("[v0] Filtered rooms for", office.name, ":", filteredRooms.map(r => r.displayName));
+
+  return filteredRooms;
 }
 
 /**
