@@ -1,4 +1,4 @@
-/// <reference types="@microsoft/office-js" />
+/// <reference types="@types/office-js" />
 
 export interface MeetingWindow {
   start: Date | null;
@@ -14,11 +14,33 @@ export interface Attendee {
 }
 
 /**
+ * Safely get the current mailbox item as AppointmentCompose, handling cases where Office.js is not loaded
+ */
+function getMailboxItem(): Office.AppointmentCompose | null {
+  try {
+    if (typeof Office === "undefined" || !Office.context?.mailbox?.item) {
+      return null;
+    }
+    // Cast to AppointmentCompose since this add-in only runs in appointment compose mode
+    return Office.context.mailbox.item as Office.AppointmentCompose;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if we're running in a valid Outlook context
+ */
+export function isInOutlookContext(): boolean {
+  return getMailboxItem() !== null;
+}
+
+/**
  * Get the current meeting time window from the appointment being composed
  */
 export async function getMeetingWindow(): Promise<MeetingWindow> {
   return new Promise((resolve) => {
-    const item = Office.context.mailbox.item;
+    const item = getMailboxItem();
     if (!item) {
       resolve({
         start: null,
@@ -40,20 +62,20 @@ export async function getMeetingWindow(): Promise<MeetingWindow> {
           start: startTime,
           end: endTime,
           complete: startTime !== null && endTime !== null,
-          timeZone: Office.context.mailbox.userProfile.timeZone ||
+          timeZone: Office.context?.mailbox?.userProfile?.timeZone ||
             Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
       }
     };
 
-    item.start.getAsync((result) => {
+    item.start.getAsync((result: any) => {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         startTime = result.value;
       }
       checkComplete();
     });
 
-    item.end.getAsync((result) => {
+    item.end.getAsync((result: any) => {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         endTime = result.value;
       }
@@ -67,7 +89,7 @@ export async function getMeetingWindow(): Promise<MeetingWindow> {
  */
 export async function getCurrentAttendees(): Promise<Attendee[]> {
   return new Promise((resolve) => {
-    const item = Office.context.mailbox.item;
+    const item = getMailboxItem();
     if (!item) {
       resolve([]);
       return;
@@ -83,7 +105,7 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
       }
     };
 
-    item.requiredAttendees.getAsync((result) => {
+    item.requiredAttendees.getAsync((result: any) => {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         for (const att of result.value) {
           attendees.push({
@@ -96,7 +118,7 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
       checkComplete();
     });
 
-    item.optionalAttendees.getAsync((result) => {
+    item.optionalAttendees.getAsync((result: any) => {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         for (const att of result.value) {
           attendees.push({
@@ -119,7 +141,7 @@ export async function addRoomAttendee(
   emailAddress: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const item = Office.context.mailbox.item;
+    const item = getMailboxItem();
     if (!item) {
       reject(new Error("No appointment item available"));
       return;
@@ -127,7 +149,7 @@ export async function addRoomAttendee(
 
     item.requiredAttendees.addAsync(
       [{ displayName, emailAddress }],
-      (result) => {
+      (result: any) => {
         if (result.status === Office.AsyncResultStatus.Succeeded) {
           resolve();
         } else {
@@ -143,13 +165,13 @@ export async function addRoomAttendee(
  */
 export async function setLocation(location: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const item = Office.context.mailbox.item;
+    const item = getMailboxItem();
     if (!item) {
       reject(new Error("No appointment item available"));
       return;
     }
 
-    item.location.setAsync(location, (result) => {
+    item.location.setAsync(location, (result: any) => {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         resolve();
       } else {
@@ -164,13 +186,13 @@ export async function setLocation(location: string): Promise<void> {
  */
 export async function getLocation(): Promise<string> {
   return new Promise((resolve) => {
-    const item = Office.context.mailbox.item;
+    const item = getMailboxItem();
     if (!item) {
       resolve("");
       return;
     }
 
-    item.location.getAsync((result) => {
+    item.location.getAsync((result: any) => {
       if (result.status === Office.AsyncResultStatus.Succeeded) {
         resolve(result.value || "");
       } else {
@@ -194,12 +216,20 @@ export async function isRoomAlreadyAdded(emailAddress: string): Promise<boolean>
  * Get organizer email
  */
 export function getOrganizerEmail(): string {
-  return Office.context.mailbox.userProfile.emailAddress;
+  try {
+    return Office.context?.mailbox?.userProfile?.emailAddress || "";
+  } catch {
+    return "";
+  }
 }
 
 /**
  * Get organizer display name
  */
 export function getOrganizerDisplayName(): string {
-  return Office.context.mailbox.userProfile.displayName;
+  try {
+    return Office.context?.mailbox?.userProfile?.displayName || "";
+  } catch {
+    return "";
+  }
 }

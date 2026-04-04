@@ -1,11 +1,12 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, isRoomAlreadyAdded } from "../office/appointment";
+import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export interface BookingResult {
   success: boolean;
   message: string;
   room?: Room;
+  isPreviewMode?: boolean;
 }
 
 /**
@@ -13,6 +14,18 @@ export interface BookingResult {
  */
 export async function bookRoom(room: Room): Promise<BookingResult> {
   try {
+    // Check if we're in Outlook context
+    if (!isInOutlookContext()) {
+      // Preview mode - show success message but note it's a simulation
+      console.log("[EA BookIQ] Preview mode - simulating room booking for:", room.displayName);
+      return {
+        success: true,
+        message: `${room.displayName} selected. Open this add-in from Outlook to add the room to your meeting.`,
+        room,
+        isPreviewMode: true,
+      };
+    }
+
     // Check if room is already added
     const alreadyAdded = await isRoomAlreadyAdded(room.emailAddress);
     if (alreadyAdded) {
@@ -38,8 +51,8 @@ export async function bookRoom(room: Room): Promise<BookingResult> {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to book room";
-    console.error("[Room Assist] Booking failed:", error);
-    
+    console.error("[EA BookIQ] Booking failed:", error);
+
     return {
       success: false,
       message,

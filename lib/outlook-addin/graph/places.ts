@@ -90,15 +90,11 @@ export async function getAllRooms(): Promise<Room[]> {
       .top(100)
       .get();
 
-    console.log("[v0] All rooms from Graph API:", response.value.map(r => ({
-      displayName: r.displayName,
-      emailAddress: r.emailAddress,
-      building: r.building
-    })));
+    console.log("[EA BookIQ] Retrieved", response.value.length, "rooms from tenant");
 
     return response.value.map(normalizeRoom);
   } catch (err) {
-    console.error("[v0] Failed to get rooms:", err);
+    console.error("[EA BookIQ] Failed to get rooms:", err);
     return [];
   }
 }
@@ -106,30 +102,30 @@ export async function getAllRooms(): Promise<Room[]> {
 /**
  * Get rooms for an office configuration
  * Filters rooms by display name containing the office location (e.g., "- Cambridge", "- Oakland")
+ * Based on room naming convention: "Room Name - Location"
  */
 export async function getRoomsForOffice(office: OfficeConfig): Promise<Room[]> {
-  // Get all rooms and filter by location in display name
   const allRooms = await getAllRooms();
 
-  const locationPattern = office.name.toLowerCase();
+  // Match rooms that end with "- Cambridge" or "- Oakland" in their display name
+  const locationSuffix = `- ${office.name}`.toLowerCase();
 
   const filteredRooms = allRooms.filter((room) => {
     const displayNameLower = room.displayName.toLowerCase();
-    const buildingLower = (room.building || "").toLowerCase();
 
-    // Match by display name containing location (e.g., "Board Room - Cambridge")
-    const nameMatch =
-      displayNameLower.includes(`- ${locationPattern}`) ||
-      displayNameLower.includes(`-${locationPattern}`) ||
-      displayNameLower.endsWith(locationPattern);
+    // Primary match: display name ends with "- Cambridge" or "- Oakland"
+    const suffixMatch = displayNameLower.endsWith(locationSuffix);
 
-    // Also match by building field if populated
-    const buildingMatch = buildingLower === locationPattern;
+    // Fallback: building field matches (if populated)
+    const buildingMatch = room.building?.toLowerCase() === office.name.toLowerCase();
 
-    return nameMatch || buildingMatch;
+    return suffixMatch || buildingMatch;
   });
 
-  console.log("[v0] Filtered rooms for", office.name, ":", filteredRooms.map(r => r.displayName));
+  console.log(
+    "[EA BookIQ] Found", filteredRooms.length, "rooms for", office.name + ":",
+    filteredRooms.map(r => r.displayName).join(", ")
+  );
 
   return filteredRooms;
 }

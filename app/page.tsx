@@ -25,7 +25,7 @@ export default function HomePage() {
               Outlook Add-in for Conference Room Booking
             </div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-[#1e3a5f] max-w-3xl text-balance">
-              EA BookIQ
+              EA Book IQ
             </h1>
             <p className="mt-4 text-lg text-muted-foreground max-w-2xl text-balance">
               Intelligent conference room booking for executive assistants. Automatically 

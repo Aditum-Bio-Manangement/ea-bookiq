@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, LogIn, Building2 } from "lucide-react";
+import { RefreshCw, LogIn, Building2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -33,6 +33,7 @@ export function TaskPane() {
   const [bookingRoomId, setBookingRoomId] = useState<string | null>(null);
   const [bookedRoomIds, setBookedRoomIds] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [canGoBack, setCanGoBack] = useState(false);
 
   // Initialize the add-in
   useEffect(() => {
@@ -174,6 +175,7 @@ export function TaskPane() {
     setSelectedOffice(office);
     setCachedOfficePreference(office.id);
     setAppState("loading");
+    setCanGoBack(true);
 
     // Need to get meeting window first if we don't have it
     if (!meetingWindow) {
@@ -182,6 +184,14 @@ export function TaskPane() {
     }
 
     await loadRooms(office);
+  };
+
+  const handleGoBack = () => {
+    // Go back to office selection
+    setSelectedOffice(null);
+    setRooms([]);
+    setAppState("select-office");
+    setCanGoBack(false);
   };
 
   const handleBookRoom = async (room: Room) => {
@@ -259,10 +269,10 @@ export function TaskPane() {
   }
 
   if (appState === "select-office") {
-    const offices = officeResult?.type === "multiple" 
-      ? officeResult.offices 
+    const offices = officeResult?.type === "multiple"
+      ? officeResult.offices
       : getAllOffices();
-    
+
     return (
       <div className="p-4">
         <OfficeSelector
@@ -294,13 +304,25 @@ export function TaskPane() {
       {/* Header */}
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-foreground">EA BookIQ</h2>
-            {getAccount() && (
-              <p className="text-xs text-muted-foreground">
-                {getAccount()?.username}
-              </p>
+          <div className="flex items-center gap-2">
+            {canGoBack && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleGoBack}
+                title="Back to office selection"
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
             )}
+            <div>
+              <h2 className="font-semibold text-foreground">EA BookIQ</h2>
+              {getAccount() && (
+                <p className="text-xs text-muted-foreground">
+                  {getAccount()?.username}
+                </p>
+              )}
+            </div>
           </div>
           <Button
             variant="ghost"

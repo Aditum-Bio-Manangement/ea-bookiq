@@ -9,7 +9,7 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: 'EA BookIQ - Aditum Bio',
   description: 'Intelligent conference room booking for executive assistants. An Outlook add-in by Aditum Bio.',
-  generator: 'v0.app',
+  generator: 'Developed by Caleb Klobe - Aditum Bio',
   icons: {
     icon: [
       {
