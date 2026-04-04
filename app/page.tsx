@@ -13,7 +13,7 @@ export default function HomePage() {
         <div className="relative max-w-5xl mx-auto px-6 py-24">
           <div className="flex flex-col items-center text-center">
             <Image
-              src="/images/aditum-logo.jpg"
+              src="/images/aditum-logo.png"
               alt="Aditum Bio"
               width={200}
               height={133}
@@ -198,7 +198,7 @@ export default function HomePage() {
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-3">
               <Image
-                src="/images/aditum-logo.jpg"
+                src="/images/aditum-logo.png"
                 alt="Aditum Bio"
                 width={100}
                 height={67}
