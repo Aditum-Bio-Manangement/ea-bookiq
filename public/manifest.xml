@@ -2,8 +2,6 @@
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
-  xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
   xsi:type="MailApp">
 
   <Id>8f3b9c2a-4d5e-6f7a-b8c9-d0e1f2a3b4c5</Id>
@@ -12,8 +10,8 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="EA Book IQ" />
   <Description DefaultValue="Intelligent conference room booking for executive assistants." />
-  <IconUrl DefaultValue="https://ea-bookiq.onrender.com/icons/icon-64.png" />
-  <HighResolutionIconUrl DefaultValue="https://ea-bookiq.onrender.com/icons/icon-64.png" />
+  <IconUrl DefaultValue="https://ea-bookiq.onrender.com/icons/icon-64.jpg" />
+  <HighResolutionIconUrl DefaultValue="https://ea-bookiq.onrender.com/icons/icon-64.jpg" />
   <SupportUrl DefaultValue="https://ea-bookiq.onrender.com" />
 
   <AppDomains>
