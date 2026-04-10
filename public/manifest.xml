@@ -5,7 +5,7 @@
   xsi:type="MailApp">
 
   <Id>8f3b9c2a-4d5e-6f7a-b8c9-d0e1f2a3b4c5</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.0.0.1</Version>
   <ProviderName>Aditum Bio</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="EA Book IQ" />
