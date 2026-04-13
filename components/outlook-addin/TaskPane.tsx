@@ -12,7 +12,7 @@ import { OfficeSelector, OfficeToggle } from "./OfficeSelector";
 
 import { initializeMsal, signIn, isSignedIn, getAccount } from "@/lib/outlook-addin/auth/msal";
 import { initializeOffice, isInOutlook, onAppointmentChanged } from "@/lib/outlook-addin/office/eventHandlers";
-import { getMeetingWindow, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
+import { getMeetingWindow, getAddedRoomEmails, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
 import { resolveOffice, setCachedOfficePreference, getAllOffices, type OfficeResolutionResult } from "@/lib/outlook-addin/domain/officeResolver";
 import { getRoomsForOffice, type Room } from "@/lib/outlook-addin/graph/places";
 import { checkRoomAvailability, type RoomAvailability } from "@/lib/outlook-addin/graph/schedule";
@@ -142,6 +142,20 @@ export function TaskPane() {
       // Get rooms for the office
       const officeRooms = await getRoomsForOffice(office);
 
+      // Check which rooms are already added to the meeting
+      const roomEmails = officeRooms.map(r => r.emailAddress);
+      if (isInOutlook()) {
+        const addedRooms = await getAddedRoomEmails(roomEmails);
+        // Update bookedRoomIds based on actual meeting attendees
+        const newBookedIds = new Set<string>();
+        for (const room of officeRooms) {
+          if (addedRooms.has(room.emailAddress.toLowerCase())) {
+            newBookedIds.add(room.id);
+          }
+        }
+        setBookedRoomIds(newBookedIds);
+      }
+
       // Check availability
       const availability = await checkRoomAvailability(
         officeRooms,
@@ -190,9 +204,27 @@ export function TaskPane() {
   const handleBookRoom = async (room: Room) => {
     setBookingRoomId(room.id);
     try {
-      const result = await bookRoom(room);
+      // Get all room emails for replacement logic
+      const allRoomEmails = rooms.map(r => r.room.emailAddress);
+      const result = await bookRoom(room, allRoomEmails);
+
       if (result.success) {
-        setBookedRoomIds((prev) => new Set(prev).add(room.id));
+        // Update booked room IDs - remove any replaced room, add new one
+        setBookedRoomIds((prev) => {
+          const newSet = new Set(prev);
+          // If a room was replaced, remove it from booked set
+          if (result.replacedRoomEmail) {
+            const replacedRoom = rooms.find(
+              r => r.room.emailAddress.toLowerCase() === result.replacedRoomEmail?.toLowerCase()
+            );
+            if (replacedRoom) {
+              newSet.delete(replacedRoom.room.id);
+            }
+          }
+          // Add the newly booked room
+          newSet.add(room.id);
+          return newSet;
+        });
       } else {
         setError(result.message);
       }

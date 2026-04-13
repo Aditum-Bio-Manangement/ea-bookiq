@@ -213,6 +213,57 @@ export async function isRoomAlreadyAdded(emailAddress: string): Promise<boolean>
 }
 
 /**
+ * Get list of room email addresses that are already added to the meeting
+ */
+export async function getAddedRoomEmails(allRoomEmails: string[]): Promise<Set<string>> {
+  const attendees = await getCurrentAttendees();
+  const attendeeEmails = new Set(attendees.map(a => a.emailAddress.toLowerCase()));
+  const addedRooms = new Set<string>();
+
+  for (const roomEmail of allRoomEmails) {
+    if (attendeeEmails.has(roomEmail.toLowerCase())) {
+      addedRooms.add(roomEmail.toLowerCase());
+    }
+  }
+
+  return addedRooms;
+}
+
+/**
+ * Remove a room attendee by setting attendees list without that room
+ */
+export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
+  return new Promise(async (resolve, reject) => {
+    const item = getMailboxItem();
+    if (!item) {
+      reject(new Error("No appointment item available"));
+      return;
+    }
+
+    try {
+      // Get current required attendees
+      const attendees = await getCurrentAttendees();
+
+      // Filter out the room to remove
+      const remainingRequired = attendees
+        .filter(a => a.recipientType === "required" && a.emailAddress.toLowerCase() !== emailToRemove.toLowerCase())
+        .map(a => ({ displayName: a.displayName, emailAddress: a.emailAddress }));
+
+      // Set the filtered list (this replaces all required attendees)
+      item.requiredAttendees.setAsync(remainingRequired, (result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          resolve();
+        } else {
+          reject(new Error(result.error?.message || "Failed to remove attendee"));
+        }
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
  * Get organizer email
  */
 export function getOrganizerEmail(): string {

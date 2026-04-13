@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext } from "../office/appointment";
+import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export interface BookingResult {
@@ -7,12 +7,14 @@ export interface BookingResult {
   message: string;
   room?: Room;
   isPreviewMode?: boolean;
+  replacedRoomEmail?: string;
 }
 
 /**
  * Book a room by adding it to the appointment
+ * If another room is already booked, it will be replaced
  */
-export async function bookRoom(room: Room): Promise<BookingResult> {
+export async function bookRoom(room: Room, allRoomEmails?: string[]): Promise<BookingResult> {
   try {
     // Check if we're in Outlook context
     if (!isInOutlookContext()) {
@@ -36,18 +38,37 @@ export async function bookRoom(room: Room): Promise<BookingResult> {
       };
     }
 
+    // Check if another room is already added and remove it
+    let replacedRoomEmail: string | undefined;
+    if (allRoomEmails && allRoomEmails.length > 0) {
+      const addedRooms = await getAddedRoomEmails(allRoomEmails);
+      if (addedRooms.size > 0) {
+        // Remove existing room(s) - typically there's only one
+        for (const existingRoomEmail of addedRooms) {
+          console.log("[EA BookIQ] Removing existing room:", existingRoomEmail);
+          await removeRoomAttendee(existingRoomEmail);
+          replacedRoomEmail = existingRoomEmail;
+        }
+      }
+    }
+
     // Add room as attendee
     await addRoomAttendee(room.displayName, room.emailAddress);
 
     // Set location
     await setLocation(room.displayName);
 
-    showNotification(`${room.displayName} added to meeting.`);
+    const message = replacedRoomEmail
+      ? `${room.displayName} replaced previous room.`
+      : `${room.displayName} added to meeting.`;
+
+    showNotification(message);
 
     return {
       success: true,
       message: `${room.displayName} has been added to your meeting.`,
       room,
+      replacedRoomEmail,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to book room";
