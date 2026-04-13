@@ -71,10 +71,12 @@ export function TaskPane() {
   useEffect(() => {
     if (!isInOutlook()) return;
 
-    const unsubscribe = onAppointmentChanged(() => {
-      // Refresh rooms when appointment time changes
+    const unsubscribe = onAppointmentChanged(async () => {
+      // Refresh rooms when appointment time changes - always fetch fresh data
       if (selectedOffice && appState === "ready") {
-        loadRooms(selectedOffice);
+        const freshWindow = await getMeetingWindow();
+        setMeetingWindow(freshWindow);
+        loadRooms(selectedOffice, freshWindow);
       }
     });
 
@@ -178,13 +180,11 @@ export function TaskPane() {
     setCachedOfficePreference(office.id);
     setAppState("loading");
 
-    // Need to get meeting window first if we don't have it
-    if (!meetingWindow) {
-      const window = isInOutlook() ? await getMeetingWindow() : getMockMeetingWindow();
-      setMeetingWindow(window);
-    }
+    // Always fetch fresh meeting window data when selecting office
+    const window = isInOutlook() ? await getMeetingWindow() : getMockMeetingWindow();
+    setMeetingWindow(window);
 
-    await loadRooms(office);
+    await loadRooms(office, window);
   };
 
   const handleBookRoom = async (room: Room) => {
@@ -204,9 +204,20 @@ export function TaskPane() {
     }
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     if (selectedOffice) {
-      loadRooms(selectedOffice);
+      setIsRefreshing(true);
+      try {
+        // Always fetch fresh meeting window data on refresh
+        const freshWindow = isInOutlook() ? await getMeetingWindow() : getMockMeetingWindow();
+        setMeetingWindow(freshWindow);
+        await loadRooms(selectedOffice, freshWindow);
+      } catch (err) {
+        console.error("[EA BookIQ] Refresh error:", err);
+        setError(err instanceof Error ? err.message : "Failed to refresh");
+      } finally {
+        setIsRefreshing(false);
+      }
     } else {
       loadOfficeAndRooms();
     }
