@@ -26,19 +26,19 @@ export function RoomCard({
   return (
     <Card
       className={cn(
-        "transition-all",
+        "transition-all overflow-hidden",
         !isAvailable && "opacity-60",
         isBooked && "border-primary bg-primary/5"
       )}
     >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-medium text-sm truncate">{room.displayName}</h3>
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex items-center gap-1.5 mb-1">
+              <h3 className="font-medium text-sm truncate flex-1 min-w-0">{room.displayName}</h3>
               {isBooked && (
-                <Badge variant="default" className="shrink-0">
-                  <Check className="size-3 mr-1" />
+                <Badge variant="default" className="shrink-0 text-xs px-1.5 py-0">
+                  <Check className="size-3 mr-0.5" />
                   Booked
                 </Badge>
               )}
@@ -92,9 +92,9 @@ export function RoomCard({
             )}
           </div>
 
-          <div className="shrink-0">
+          <div className="shrink-0 flex items-center">
             {isBooked ? (
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="secondary" className="text-xs whitespace-nowrap">
                 Added
               </Badge>
             ) : isAvailable ? (
@@ -102,12 +102,12 @@ export function RoomCard({
                 size="sm"
                 onClick={() => onBook(room)}
                 disabled={isBooking}
-                className="min-w-[70px]"
+                className="h-7 px-2 text-xs"
               >
-                {isBooking ? <Spinner className="size-4" /> : "Book"}
+                {isBooking ? <Spinner className="size-3" /> : "Book"}
               </Button>
             ) : (
-              <Badge variant="destructive" className="text-xs">
+              <Badge variant="destructive" className="text-xs whitespace-nowrap">
                 Busy
               </Badge>
             )}
