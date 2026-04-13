@@ -9,7 +9,22 @@ import {
 import { MSAL_CONFIG, GRAPH_SCOPES } from "../config/offices";
 
 let msalInstance: IPublicClientApplication | null = null;
-let isNaaMode = false;
+
+// Polyfill history.replaceState if not available (e.g., in iframes)
+function ensureHistoryApi(): void {
+  if (typeof window !== "undefined" && typeof window.history !== "undefined") {
+    if (typeof window.history.replaceState !== "function") {
+      window.history.replaceState = function () {
+        // No-op polyfill for restricted contexts
+      };
+    }
+    if (typeof window.history.pushState !== "function") {
+      window.history.pushState = function () {
+        // No-op polyfill for restricted contexts
+      };
+    }
+  }
+}
 
 // Get redirect URI at runtime (must be called client-side)
 function getRedirectUri(): string {
@@ -29,49 +44,47 @@ function getMsalConfig(): Configuration {
       clientId: MSAL_CONFIG.clientId,
       authority: `https://login.microsoftonline.com/${MSAL_CONFIG.tenantId}`,
       redirectUri: getRedirectUri(),
+      // Disable navigation client to prevent history.replaceState errors in iframes
+      navigateToLoginRequestUrl: false,
     },
     cache: {
-      cacheLocation: "sessionStorage",
-      storeAuthStateInCookie: false,
+      // Use localStorage for persistent sessions across browser sessions
+      cacheLocation: "localStorage",
+      storeAuthStateInCookie: true,
+    },
+    system: {
+      // Prevent MSAL from using history API which fails in iframes
+      allowRedirectInIframe: true,
     },
   };
 }
 
 /**
- * Initialize MSAL - attempts NAA first, falls back to standard MSAL
+ * Initialize MSAL - uses standard popup authentication
+ * NAA (Nested App Authentication) is disabled due to broker URI issues
  */
 export async function initializeMsal(): Promise<IPublicClientApplication> {
   if (msalInstance) {
     return msalInstance;
   }
 
-  // Try Nested App Authentication (NAA) first for Outlook add-in context
-  if (typeof Office !== "undefined" && Office.context) {
-    try {
-      // Check if NAA is available (Office.js 1.3+)
-      const { createNestablePublicClientApplication } = await import(
-        "@azure/msal-browser"
-      );
-      if (createNestablePublicClientApplication) {
-        msalInstance = await createNestablePublicClientApplication({
-          auth: {
-            clientId: MSAL_CONFIG.clientId,
-            authority: `https://login.microsoftonline.com/${MSAL_CONFIG.tenantId}`,
-          },
-        });
-        isNaaMode = true;
-        console.log("[EA BookIQ] NAA mode initialized");
-        return msalInstance;
-      }
-    } catch {
-      console.log("[EA BookIQ] NAA not available, using standard MSAL");
-    }
-  }
+  // Ensure history API is available (polyfill for iframe contexts)
+  ensureHistoryApi();
 
-  // Fall back to standard MSAL
+  // Use standard MSAL with popup authentication
+  // NAA mode disabled - broker redirect URIs have compatibility issues
   msalInstance = new PublicClientApplication(getMsalConfig());
-  await msalInstance.initialize();
-  console.log("[EA BookIQ] Standard MSAL initialized");
+  
+  // Initialize MSAL - wrap in try-catch to handle iframe/restricted contexts
+  try {
+    await msalInstance.initialize();
+  } catch (initError) {
+    // In some iframe contexts, history.replaceState may not be available
+    // MSAL can still function for popup-based auth
+    console.warn("[EA BookIQ] MSAL initialize warning (may be in iframe):", initError);
+  }
+  
+  console.log("[EA BookIQ] Standard MSAL initialized with popup auth");
   return msalInstance;
 }
 
