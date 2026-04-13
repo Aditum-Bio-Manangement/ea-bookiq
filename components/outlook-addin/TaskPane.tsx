@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, LogIn, Building2, ArrowLeft } from "lucide-react";
+import { RefreshCw, LogIn, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -33,7 +33,6 @@ export function TaskPane() {
   const [bookingRoomId, setBookingRoomId] = useState<string | null>(null);
   const [bookedRoomIds, setBookedRoomIds] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [canGoBack, setCanGoBack] = useState(false);
 
   // Initialize the add-in
   useEffect(() => {
@@ -118,7 +117,8 @@ export function TaskPane() {
       }
 
       setSelectedOffice(office);
-      await loadRooms(office);
+      // Pass the window directly to avoid stale state
+      await loadRooms(office, window);
     } catch (err) {
       console.error("[EA BookIQ] Load error:", err);
       setError(err instanceof Error ? err.message : "Failed to load rooms");
@@ -126,8 +126,11 @@ export function TaskPane() {
     }
   }, []);
 
-  const loadRooms = async (office: OfficeConfig) => {
-    if (!meetingWindow?.complete) {
+  const loadRooms = async (office: OfficeConfig, windowOverride?: MeetingWindow) => {
+    // Use provided window or fall back to state
+    const currentWindow = windowOverride || meetingWindow;
+
+    if (!currentWindow?.complete) {
       setRooms([]);
       setAppState("ready");
       return;
@@ -141,9 +144,9 @@ export function TaskPane() {
       // Check availability
       const availability = await checkRoomAvailability(
         officeRooms,
-        meetingWindow.start!,
-        meetingWindow.end!,
-        meetingWindow.timeZone
+        currentWindow.start!,
+        currentWindow.end!,
+        currentWindow.timeZone
       );
 
       // Rank rooms
@@ -175,7 +178,6 @@ export function TaskPane() {
     setSelectedOffice(office);
     setCachedOfficePreference(office.id);
     setAppState("loading");
-    setCanGoBack(true);
 
     // Need to get meeting window first if we don't have it
     if (!meetingWindow) {
@@ -184,14 +186,6 @@ export function TaskPane() {
     }
 
     await loadRooms(office);
-  };
-
-  const handleGoBack = () => {
-    // Go back to office selection
-    setSelectedOffice(null);
-    setRooms([]);
-    setAppState("select-office");
-    setCanGoBack(false);
   };
 
   const handleBookRoom = async (room: Room) => {
@@ -304,25 +298,13 @@ export function TaskPane() {
       {/* Header */}
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {canGoBack && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleGoBack}
-                title="Back to office selection"
-              >
-                <ArrowLeft className="size-4" />
-              </Button>
+          <div>
+            <h2 className="font-semibold text-foreground">EA BookIQ</h2>
+            {getAccount() && (
+              <p className="text-xs text-muted-foreground">
+                {getAccount()?.username}
+              </p>
             )}
-            <div>
-              <h2 className="font-semibold text-foreground">EA BookIQ</h2>
-              {getAccount() && (
-                <p className="text-xs text-muted-foreground">
-                  {getAccount()?.username}
-                </p>
-              )}
-            </div>
           </div>
           <Button
             variant="ghost"
