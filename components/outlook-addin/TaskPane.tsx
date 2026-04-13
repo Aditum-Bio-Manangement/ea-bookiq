@@ -5,7 +5,6 @@ import { RefreshCw, LogIn, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { RoomCard } from "./RoomCard";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
@@ -294,7 +293,7 @@ export function TaskPane() {
   const unavailableRooms = rooms.filter((r) => !r.isAvailable);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center justify-between">
@@ -341,8 +340,8 @@ export function TaskPane() {
         )}
       </div>
 
-      {/* Content */}
-      <ScrollArea className="flex-1">
+      {/* Content - scrollable area */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 space-y-4">
           {!meetingWindow?.complete ? (
             <EmptyState type="no-time" />
@@ -404,7 +403,7 @@ export function TaskPane() {
             </>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
