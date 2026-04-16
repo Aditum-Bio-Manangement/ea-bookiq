@@ -17,7 +17,7 @@ import { resolveOffice, setCachedOfficePreference, getAllOffices, type OfficeRes
 import { getRoomsForOffice, type Room } from "@/lib/outlook-addin/graph/places";
 import { checkRoomAvailability, type RoomAvailability } from "@/lib/outlook-addin/graph/schedule";
 import { rankRooms } from "@/lib/outlook-addin/domain/roomRanker";
-import { bookRoom } from "@/lib/outlook-addin/domain/booking";
+import { bookRoom, type BookingMode } from "@/lib/outlook-addin/domain/booking";
 import { isMsalConfigured, type OfficeConfig } from "@/lib/outlook-addin/config/offices";
 
 type AppState = "initializing" | "sign-in" | "select-office" | "loading" | "ready" | "error" | "not-configured";
@@ -201,30 +201,32 @@ export function TaskPane() {
     await loadRooms(office, window);
   };
 
-  const handleBookRoom = async (room: Room) => {
+  const handleBookRoom = async (room: Room, mode: BookingMode = "both") => {
     setBookingRoomId(room.id);
     try {
-      // Get all room emails for replacement logic
+      // Get all room emails for replacement logic (only used in "both" mode)
       const allRoomEmails = rooms.map(r => r.room.emailAddress);
-      const result = await bookRoom(room, allRoomEmails);
+      const result = await bookRoom(room, allRoomEmails, mode);
 
       if (result.success) {
-        // Update booked room IDs - remove any replaced room, add new one
-        setBookedRoomIds((prev) => {
-          const newSet = new Set(prev);
-          // If a room was replaced, remove it from booked set
-          if (result.replacedRoomEmail) {
-            const replacedRoom = rooms.find(
-              r => r.room.emailAddress.toLowerCase() === result.replacedRoomEmail?.toLowerCase()
-            );
-            if (replacedRoom) {
-              newSet.delete(replacedRoom.room.id);
+        // Only update booked room IDs if we added the room as an attendee
+        if (mode === "both" || mode === "attendee") {
+          setBookedRoomIds((prev) => {
+            const newSet = new Set(prev);
+            // If a room was replaced, remove it from booked set
+            if (result.replacedRoomEmail) {
+              const replacedRoom = rooms.find(
+                r => r.room.emailAddress.toLowerCase() === result.replacedRoomEmail?.toLowerCase()
+              );
+              if (replacedRoom) {
+                newSet.delete(replacedRoom.room.id);
+              }
             }
-          }
-          // Add the newly booked room
-          newSet.add(room.id);
-          return newSet;
-        });
+            // Add the newly booked room
+            newSet.add(room.id);
+            return newSet;
+          });
+        }
       } else {
         setError(result.message);
       }
@@ -358,17 +360,17 @@ export function TaskPane() {
           </Button>
         </div>
 
-        {/* Office toggle (if multiple offices) */}
-        {officeResult?.type === "multiple" && selectedOffice && (
+        {/* Office toggle - always show if user has access to multiple offices or belongs to multiple groups */}
+        {selectedOffice && (officeResult?.type === "multiple" || getAllOffices().length > 1) && (
           <OfficeToggle
-            offices={officeResult.offices}
+            offices={officeResult?.type === "multiple" ? officeResult.offices : getAllOffices()}
             selectedOffice={selectedOffice}
             onSelect={handleOfficeSelect}
           />
         )}
 
-        {/* Office indicator */}
-        {selectedOffice && officeResult?.type !== "multiple" && (
+        {/* Office indicator - only show if single office and no toggle */}
+        {selectedOffice && officeResult?.type === "single" && getAllOffices().length <= 1 && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building2 className="size-4" />
             <span>{selectedOffice.displayName}</span>

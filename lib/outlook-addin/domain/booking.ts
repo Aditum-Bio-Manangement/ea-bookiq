@@ -2,19 +2,27 @@ import type { Room } from "../graph/places";
 import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
+export type BookingMode = "both" | "attendee" | "location";
+
 export interface BookingResult {
   success: boolean;
   message: string;
   room?: Room;
   isPreviewMode?: boolean;
   replacedRoomEmail?: string;
+  mode?: BookingMode;
 }
 
 /**
  * Book a room by adding it to the appointment
- * If another room is already booked, it will be replaced
+ * If another room is already booked as attendee, it will be replaced
+ * @param mode - "both" (default): add as attendee + set location, "attendee": only add as attendee, "location": only set location
  */
-export async function bookRoom(room: Room, allRoomEmails?: string[]): Promise<BookingResult> {
+export async function bookRoom(
+  room: Room,
+  allRoomEmails?: string[],
+  mode: BookingMode = "both"
+): Promise<BookingResult> {
   try {
     // Check if we're in Outlook context
     if (!isInOutlookContext()) {
@@ -25,50 +33,69 @@ export async function bookRoom(room: Room, allRoomEmails?: string[]): Promise<Bo
         message: `${room.displayName} selected. Open this add-in from Outlook to add the room to your meeting.`,
         room,
         isPreviewMode: true,
+        mode,
       };
     }
 
-    // Check if room is already added
-    const alreadyAdded = await isRoomAlreadyAdded(room.emailAddress);
-    if (alreadyAdded) {
-      return {
-        success: false,
-        message: `${room.displayName} is already added to this meeting.`,
-        room,
-      };
-    }
-
-    // Check if another room is already added and remove it
     let replacedRoomEmail: string | undefined;
-    if (allRoomEmails && allRoomEmails.length > 0) {
-      const addedRooms = await getAddedRoomEmails(allRoomEmails);
-      if (addedRooms.size > 0) {
-        // Remove existing room(s) - typically there's only one
-        for (const existingRoomEmail of addedRooms) {
-          console.log("[EA BookIQ] Removing existing room:", existingRoomEmail);
-          await removeRoomAttendee(existingRoomEmail);
-          replacedRoomEmail = existingRoomEmail;
+
+    // Handle attendee addition (for "both" or "attendee" modes)
+    if (mode === "both" || mode === "attendee") {
+      // Check if room is already added as attendee
+      const alreadyAdded = await isRoomAlreadyAdded(room.emailAddress);
+      if (alreadyAdded && mode === "attendee") {
+        return {
+          success: false,
+          message: `${room.displayName} is already added as an attendee.`,
+          room,
+          mode,
+        };
+      }
+
+      if (!alreadyAdded) {
+        // Check if another room is already added and remove it (only in "both" mode)
+        if (mode === "both" && allRoomEmails && allRoomEmails.length > 0) {
+          const addedRooms = await getAddedRoomEmails(allRoomEmails);
+          if (addedRooms.size > 0) {
+            // Remove existing room(s) - typically there's only one
+            for (const existingRoomEmail of addedRooms) {
+              console.log("[EA BookIQ] Removing existing room:", existingRoomEmail);
+              await removeRoomAttendee(existingRoomEmail);
+              replacedRoomEmail = existingRoomEmail;
+            }
+          }
         }
+
+        // Add room as attendee
+        await addRoomAttendee(room.displayName, room.emailAddress);
       }
     }
 
-    // Add room as attendee
-    await addRoomAttendee(room.displayName, room.emailAddress);
+    // Handle location setting (for "both" or "location" modes)
+    if (mode === "both" || mode === "location") {
+      await setLocation(room.displayName);
+    }
 
-    // Set location
-    await setLocation(room.displayName);
-
-    const message = replacedRoomEmail
-      ? `${room.displayName} replaced previous room.`
-      : `${room.displayName} added to meeting.`;
+    // Build notification message
+    let message: string;
+    if (mode === "both") {
+      message = replacedRoomEmail
+        ? `${room.displayName} replaced previous room.`
+        : `${room.displayName} added to meeting.`;
+    } else if (mode === "attendee") {
+      message = `${room.displayName} added as attendee.`;
+    } else {
+      message = `Location set to ${room.displayName}.`;
+    }
 
     showNotification(message);
 
     return {
       success: true,
-      message: `${room.displayName} has been added to your meeting.`,
+      message,
       room,
       replacedRoomEmail,
+      mode,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to book room";
@@ -78,6 +105,7 @@ export async function bookRoom(room: Room, allRoomEmails?: string[]): Promise<Bo
       success: false,
       message,
       room,
+      mode,
     };
   }
 }
