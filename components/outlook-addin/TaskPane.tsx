@@ -360,17 +360,17 @@ export function TaskPane() {
           </Button>
         </div>
 
-        {/* Office toggle - always show if user has access to multiple offices or belongs to multiple groups */}
-        {selectedOffice && (officeResult?.type === "multiple" || getAllOffices().length > 1) && (
+        {/* Office toggle - only show if user is a member of multiple office groups */}
+        {selectedOffice && officeResult?.type === "multiple" && (
           <OfficeToggle
-            offices={officeResult?.type === "multiple" ? officeResult.offices : getAllOffices()}
+            offices={officeResult.offices}
             selectedOffice={selectedOffice}
             onSelect={handleOfficeSelect}
           />
         )}
 
-        {/* Office indicator - only show if single office and no toggle */}
-        {selectedOffice && officeResult?.type === "single" && getAllOffices().length <= 1 && (
+        {/* Office indicator - show if user only has access to one office */}
+        {selectedOffice && officeResult?.type !== "multiple" && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building2 className="size-4" />
             <span>{selectedOffice.displayName}</span>
