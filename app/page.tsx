@@ -13,7 +13,7 @@ export default function HomePage() {
         <div className="relative max-w-5xl mx-auto px-6 py-24">
           <div className="flex flex-col items-center text-center">
             <Image
-              src="/images/aditum-logo.png"
+              src="/images/aditum-logo.jpg"
               alt="Aditum Bio"
               width={200}
               height={133}
@@ -25,10 +25,10 @@ export default function HomePage() {
               Outlook Add-in for Conference Room Booking
             </div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-[#1e3a5f] max-w-3xl text-balance">
-              EA Book IQ
+              AB Book IQ
             </h1>
             <p className="mt-4 text-lg text-muted-foreground max-w-2xl text-balance">
-              Intelligent conference room booking for executive assistants. Automatically 
+              Intelligent conference room booking for Aditum Bio employees. Automatically
               identifies your office location and shows available rooms for your meeting time.
             </p>
             <div className="mt-8 flex flex-wrap gap-4 justify-center">
@@ -53,7 +53,7 @@ export default function HomePage() {
         <div className="text-center mb-12">
           <h2 className="text-2xl font-bold text-foreground">How It Works</h2>
           <p className="mt-2 text-muted-foreground">
-            Streamline conference room booking for executive assistants
+            Streamline conference room booking for Aditum Bio employees
           </p>
         </div>
 
@@ -65,7 +65,7 @@ export default function HomePage() {
               </div>
               <CardTitle className="text-lg">Auto Office Detection</CardTitle>
               <CardDescription>
-                Automatically identifies your office location based on 
+                Automatically identifies your office location based on
                 security group membership (Cambridge or Oakland).
               </CardDescription>
             </CardHeader>
@@ -78,7 +78,7 @@ export default function HomePage() {
               </div>
               <CardTitle className="text-lg">Real-Time Availability</CardTitle>
               <CardDescription>
-                Queries Microsoft Graph for live free/busy status during 
+                Queries Microsoft Graph for live free/busy status during
                 your exact meeting time window.
               </CardDescription>
             </CardHeader>
@@ -91,7 +91,7 @@ export default function HomePage() {
               </div>
               <CardTitle className="text-lg">One-Click Booking</CardTitle>
               <CardDescription>
-                Insert the best-fit room into your meeting with one click. 
+                Insert the best-fit room into your meeting with one click.
                 Appears immediately in Scheduling Assistant.
               </CardDescription>
             </CardHeader>
@@ -105,7 +105,7 @@ export default function HomePage() {
           <div className="text-center mb-12">
             <h2 className="text-2xl font-bold text-foreground">Setup Requirements</h2>
             <p className="mt-2 text-muted-foreground">
-              What you need to deploy EA BookIQ
+              What you need to deploy AB Book IQ
             </p>
           </div>
 
@@ -198,14 +198,14 @@ export default function HomePage() {
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-3">
               <Image
-                src="/images/aditum-logo.png"
+                src="/images/aditum-logo.jpg"
                 alt="Aditum Bio"
                 width={100}
                 height={67}
                 className="opacity-80"
               />
               <p className="text-sm text-muted-foreground">
-                EA BookIQ - Conference Room Booking
+                AB Book IQ - Conference Room Booking
               </p>
             </div>
             <div className="flex gap-4">

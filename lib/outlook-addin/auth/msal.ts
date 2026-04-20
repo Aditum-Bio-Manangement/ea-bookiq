@@ -74,17 +74,17 @@ export async function initializeMsal(): Promise<IPublicClientApplication> {
   // Use standard MSAL with popup authentication
   // NAA mode disabled - broker redirect URIs have compatibility issues
   msalInstance = new PublicClientApplication(getMsalConfig());
-  
+
   // Initialize MSAL - wrap in try-catch to handle iframe/restricted contexts
   try {
     await msalInstance.initialize();
   } catch (initError) {
     // In some iframe contexts, history.replaceState may not be available
     // MSAL can still function for popup-based auth
-    console.warn("[EA BookIQ] MSAL initialize warning (may be in iframe):", initError);
+    console.warn("[AB Book IQ] MSAL initialize warning (may be in iframe):", initError);
   }
-  
-  console.log("[EA BookIQ] Standard MSAL initialized with popup auth");
+
+  console.log("[AB Book IQ] Standard MSAL initialized with popup auth");
   return msalInstance;
 }
 
@@ -145,7 +145,7 @@ export async function signIn(): Promise<AccountInfo | null> {
     });
     return response.account;
   } catch (error) {
-    console.error("[EA BookIQ] Sign in failed:", error);
+    console.error("[AB Book IQ] Sign in failed:", error);
     throw error;
   }
 }

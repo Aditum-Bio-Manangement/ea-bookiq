@@ -46,7 +46,7 @@ export async function initializeOffice(): Promise<void> {
   try {
     await loadOfficeJs();
   } catch {
-    console.log("[EA BookIQ] Office.js not available - running in preview mode");
+    console.log("[AB Book IQ] Office.js not available - running in preview mode");
     officeLoaded = true;
     return;
   }
@@ -54,7 +54,7 @@ export async function initializeOffice(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof Office === "undefined") {
       // Office.js not loaded - we're in development/preview mode
-      console.log("[EA BookIQ] Office.js not available - running in preview mode");
+      console.log("[AB Book IQ] Office.js not available - running in preview mode");
       officeLoaded = true;
       resolve();
       return;
@@ -63,11 +63,11 @@ export async function initializeOffice(): Promise<void> {
     Office.onReady((info) => {
       officeLoaded = true;
       if (info.host === Office.HostType.Outlook) {
-        console.log("[EA BookIQ] Office.js ready in Outlook");
+        console.log("[AB Book IQ] Office.js ready in Outlook");
         resolve();
       } else if (!info.host) {
         // Running outside of Office - preview mode
-        console.log("[EA BookIQ] Running in preview mode (no Office host)");
+        console.log("[AB Book IQ] Running in preview mode (no Office host)");
         resolve();
       } else {
         reject(new Error(`Unsupported host: ${info.host}`));
@@ -138,7 +138,7 @@ function startListeningForChanges(): void {
         handleAppointmentChanged
       );
     } catch {
-      console.log("[EA BookIQ] AppointmentTimeChanged event not supported");
+      console.log("[AB Book IQ] AppointmentTimeChanged event not supported");
     }
   }
 }
@@ -151,7 +151,7 @@ function handleAppointmentChanged(): void {
     try {
       callback();
     } catch (error) {
-      console.error("[EA BookIQ] Error in appointment change callback:", error);
+      console.error("[AB Book IQ] Error in appointment change callback:", error);
     }
   }
 }

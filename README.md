@@ -1,8 +1,8 @@
-# EA Book IQ - Outlook Add-in for Conference Room Booking
+# AB Book IQ - Outlook Add-in for Conference Room Booking
 
-**Intelligent conference room booking for executive assistants at Aditum Bio.**
+**Intelligent conference room booking for Aditum Bio employees.**
 
-EA Book IQ is a Microsoft Outlook add-in that streamlines the process of booking conference rooms. It automatically identifies the user's office location based on their security group membership (EA-Cambridge or EA-Oakland) and shows only relevant rooms with real-time availability.
+AB Book IQ is a Microsoft Outlook add-in that streamlines the process of booking conference rooms. It automatically identifies the user's office location based on their security group membership (EA-Cambridge or EA-Oakland) and shows only relevant rooms with real-time availability.
 
 ## Features
 
@@ -102,7 +102,7 @@ EA Book IQ is a Microsoft Outlook add-in that streamlines the process of booking
 ```bash
 git clone <repository-url>
 cd ea-bookiq
-npm install
+pnpm install
 ```
 
 ### 2. Configure Environment Variables
@@ -136,7 +136,7 @@ NEXT_PUBLIC_REDIRECT_URI=https://your-domain.com/taskpane
 Deploy to your hosting platform (Render, Vercel, etc.):
 
 ```bash
-npm build
+pnpm build
 ```
 
 ### 5. Install the Add-in
@@ -158,13 +158,13 @@ npm build
 
 ```bash
 # Start development server
-npm dev
+pnpm dev
 
 # Build for production
-npm build
+pnpm build
 
 # Start production server
-npm start
+pnpm start
 ```
 
 ## Configuration

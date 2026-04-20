@@ -29,13 +29,13 @@ async function checkGroupMembership(groupEmail: string): Promise<boolean> {
       .get();
 
     if (!groupResponse.value || groupResponse.value.length === 0) {
-      console.log(`[EA BookIQ] Group not found: ${groupEmail}`);
+      console.log(`[AB Book IQ] Group not found: ${groupEmail}`);
       return false;
     }
 
     const groupId = groupResponse.value[0].id;
     const groupName = groupResponse.value[0].displayName;
-    console.log(`[EA BookIQ] Found group ${groupName} (${groupEmail}) with ID: ${groupId}`);
+    console.log(`[AB Book IQ] Found group ${groupName} (${groupEmail}) with ID: ${groupId}`);
 
     // Check if the current user is a member of this group
     const memberCheckResponse = await client
@@ -45,11 +45,11 @@ async function checkGroupMembership(groupEmail: string): Promise<boolean> {
       });
 
     const isMember = memberCheckResponse.value && memberCheckResponse.value.includes(groupId);
-    console.log(`[EA BookIQ] User membership in ${groupName}: ${isMember}`);
+    console.log(`[AB Book IQ] User membership in ${groupName}: ${isMember}`);
 
     return isMember;
   } catch (err) {
-    console.error(`[EA BookIQ] Error checking membership for ${groupEmail}:`, err);
+    console.error(`[AB Book IQ] Error checking membership for ${groupEmail}:`, err);
     return false;
   }
 }
@@ -62,22 +62,22 @@ export async function resolveUserOffices(): Promise<OfficeConfig[]> {
   const matchedOffices: OfficeConfig[] = [];
 
   // Check Cambridge membership
-  console.log("[EA BookIQ] Checking membership in EA-Cambridge...");
+  console.log("[AB Book IQ] Checking membership in EA-Cambridge...");
   const isCambridgeMember = await checkGroupMembership(EA_CAMBRIDGE_EMAIL);
   if (isCambridgeMember) {
-    console.log("[EA BookIQ] User IS a member of EA-Cambridge");
+    console.log("[AB Book IQ] User IS a member of EA-Cambridge");
     matchedOffices.push(OFFICE_CONFIGS.cambridge);
   }
 
   // Check Oakland membership
-  console.log("[EA BookIQ] Checking membership in EA-Oakland...");
+  console.log("[AB Book IQ] Checking membership in EA-Oakland...");
   const isOaklandMember = await checkGroupMembership(EA_OAKLAND_EMAIL);
   if (isOaklandMember) {
-    console.log("[EA BookIQ] User IS a member of EA-Oakland");
+    console.log("[AB Book IQ] User IS a member of EA-Oakland");
     matchedOffices.push(OFFICE_CONFIGS.oakland);
   }
 
-  console.log("[EA BookIQ] Resolved offices:", matchedOffices.map(o => o.name));
+  console.log("[AB Book IQ] Resolved offices:", matchedOffices.map(o => o.name));
   return matchedOffices;
 }
 

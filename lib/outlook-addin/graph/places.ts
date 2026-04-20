@@ -72,7 +72,7 @@ export async function getRoomsByBuilding(building: string): Promise<Room[]> {
   } catch {
     // Filter might not be supported, fall back to getting all rooms
     console.warn(
-      "[EA BookIQ] Building filter not supported, fetching all rooms"
+      "[AB Book IQ] Building filter not supported, fetching all rooms"
     );
     return getAllRoomsForOffice(building);
   }
@@ -90,11 +90,11 @@ export async function getAllRooms(): Promise<Room[]> {
       .top(100)
       .get();
 
-    console.log("[EA BookIQ] Retrieved", response.value.length, "rooms from tenant");
+    console.log("[AB Book IQ] Retrieved", response.value.length, "rooms from tenant");
 
     return response.value.map(normalizeRoom);
   } catch (err) {
-    console.error("[EA BookIQ] Failed to get rooms:", err);
+    console.error("[AB Book IQ] Failed to get rooms:", err);
     return [];
   }
 }
@@ -123,7 +123,7 @@ export async function getRoomsForOffice(office: OfficeConfig): Promise<Room[]> {
   });
 
   console.log(
-    "[EA BookIQ] Found", filteredRooms.length, "rooms for", office.name + ":",
+    "[AB Book IQ] Found", filteredRooms.length, "rooms for", office.name + ":",
     filteredRooms.map(r => r.displayName).join(", ")
   );
 
