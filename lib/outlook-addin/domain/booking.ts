@@ -27,7 +27,7 @@ export async function bookRoom(
     // Check if we're in Outlook context
     if (!isInOutlookContext()) {
       // Preview mode - show success message but note it's a simulation
-      console.log("[EA BookIQ] Preview mode - simulating room booking for:", room.displayName);
+      console.log("[AB Book IQ] Preview mode - simulating room booking for:", room.displayName);
       return {
         success: true,
         message: `${room.displayName} selected. Open this add-in from Outlook to add the room to your meeting.`,
@@ -59,7 +59,7 @@ export async function bookRoom(
           if (addedRooms.size > 0) {
             // Remove existing room(s) - typically there's only one
             for (const existingRoomEmail of addedRooms) {
-              console.log("[EA BookIQ] Removing existing room:", existingRoomEmail);
+              console.log("[AB Book IQ] Removing existing room:", existingRoomEmail);
               await removeRoomAttendee(existingRoomEmail);
               replacedRoomEmail = existingRoomEmail;
             }
@@ -99,7 +99,7 @@ export async function bookRoom(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to book room";
-    console.error("[EA BookIQ] Booking failed:", error);
+    console.error("[AB Book IQ] Booking failed:", error);
 
     return {
       success: false,

@@ -58,7 +58,7 @@ export function TaskPane() {
         // Proceed to load office and rooms
         await loadOfficeAndRooms();
       } catch (err) {
-        console.error("[EA BookIQ] Initialization error:", err);
+        console.error("[AB Book IQ] Initialization error:", err);
         setError(err instanceof Error ? err.message : "Failed to initialize");
         setAppState("error");
       }
@@ -121,7 +121,7 @@ export function TaskPane() {
       // Pass the window directly to avoid stale state
       await loadRooms(office, window);
     } catch (err) {
-      console.error("[EA BookIQ] Load error:", err);
+      console.error("[AB Book IQ] Load error:", err);
       setError(err instanceof Error ? err.message : "Failed to load rooms");
       setAppState("error");
     }
@@ -169,7 +169,7 @@ export function TaskPane() {
       setRooms(rankedRooms);
       setAppState("ready");
     } catch (err) {
-      console.error("[EA BookIQ] Room load error:", err);
+      console.error("[AB Book IQ] Room load error:", err);
       setError(err instanceof Error ? err.message : "Failed to load rooms");
       setAppState("error");
     } finally {
@@ -183,7 +183,7 @@ export function TaskPane() {
       await signIn();
       await loadOfficeAndRooms();
     } catch (err) {
-      console.error("[EA BookIQ] Sign in error:", err);
+      console.error("[AB Book IQ] Sign in error:", err);
       setError(err instanceof Error ? err.message : "Sign in failed");
       setAppState("sign-in");
     }
@@ -231,7 +231,7 @@ export function TaskPane() {
         setError(result.message);
       }
     } catch (err) {
-      console.error("[EA BookIQ] Booking error:", err);
+      console.error("[AB Book IQ] Booking error:", err);
       setError(err instanceof Error ? err.message : "Failed to book room");
     } finally {
       setBookingRoomId(null);
@@ -247,7 +247,7 @@ export function TaskPane() {
         setMeetingWindow(freshWindow);
         await loadRooms(selectedOffice, freshWindow);
       } catch (err) {
-        console.error("[EA BookIQ] Refresh error:", err);
+        console.error("[AB Book IQ] Refresh error:", err);
         setError(err instanceof Error ? err.message : "Failed to refresh");
       } finally {
         setIsRefreshing(false);

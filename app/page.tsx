@@ -13,7 +13,7 @@ export default function HomePage() {
         <div className="relative max-w-5xl mx-auto px-6 py-24">
           <div className="flex flex-col items-center text-center">
             <Image
-              src="/images/aditum-logo.jpg"
+              src="/images/aditum-logo.png"
               alt="Aditum Bio"
               width={200}
               height={133}

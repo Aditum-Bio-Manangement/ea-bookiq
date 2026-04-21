@@ -164,7 +164,7 @@ export function showNotification(
   type: "informational" | "error" = "informational"
 ): void {
   if (!isInOutlook()) {
-    console.log(`[EA BookIQ Notification] ${type}: ${message}`);
+    console.log(`[AB Book IQ Notification] ${type}: ${message}`);
     return;
   }
 
