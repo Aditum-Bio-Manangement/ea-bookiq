@@ -343,7 +343,7 @@ export function TaskPane() {
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-foreground">EA Book IQ</h2>
+            <h2 className="font-semibold text-foreground">AB Book IQ</h2>
             {getAccount() && (
               <p className="text-xs text-muted-foreground">
                 {getAccount()?.username}
