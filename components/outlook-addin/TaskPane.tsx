@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, LogIn, Building2 } from "lucide-react";
+import { RefreshCw, LogIn, Building2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,7 +20,7 @@ import { rankRooms } from "@/lib/outlook-addin/domain/roomRanker";
 import { bookRoom, type BookingMode } from "@/lib/outlook-addin/domain/booking";
 import { isMsalConfigured, type OfficeConfig } from "@/lib/outlook-addin/config/offices";
 
-type AppState = "initializing" | "sign-in" | "select-office" | "loading" | "ready" | "error" | "not-configured";
+type AppState = "initializing" | "sign-in" | "select-office" | "loading" | "ready" | "error" | "not-configured" | "not-authorized";
 
 export function TaskPane() {
   const [appState, setAppState] = useState<AppState>("initializing");
@@ -97,12 +97,13 @@ export function TaskPane() {
         return;
       }
 
-      // Resolve office
+      // Resolve office based on group membership
       const result = await resolveOffice();
       setOfficeResult(result);
 
+      // User is not a member of ea-cambridge or ea-oakland groups
       if (result.type === "none") {
-        setAppState("select-office");
+        setAppState("not-authorized");
         return;
       }
 
@@ -142,21 +143,24 @@ export function TaskPane() {
       // Get rooms for the office
       const officeRooms = await getRoomsForOffice(office);
 
-      // Check which rooms are already added to the meeting
+      // Check which rooms are already added to the meeting (in Outlook context)
+      // This ensures booked rooms are properly detected even after refresh
       const roomEmails = officeRooms.map(r => r.emailAddress);
+      const newBookedIds = new Set<string>();
+      
       if (isInOutlook()) {
         const addedRooms = await getAddedRoomEmails(roomEmails);
         // Update bookedRoomIds based on actual meeting attendees
-        const newBookedIds = new Set<string>();
         for (const room of officeRooms) {
           if (addedRooms.has(room.emailAddress.toLowerCase())) {
             newBookedIds.add(room.id);
           }
         }
-        setBookedRoomIds(newBookedIds);
       }
+      
+      setBookedRoomIds(newBookedIds);
 
-      // Check availability
+      // Check availability using the meeting window date/time
       const availability = await checkRoomAvailability(
         officeRooms,
         currentWindow.start!,
@@ -207,7 +211,7 @@ export function TaskPane() {
       // Get all room emails for replacement logic (only used in "both" mode)
       const allRoomEmails = rooms.map(r => r.room.emailAddress);
       const result = await bookRoom(room, allRoomEmails, mode);
-
+      
       if (result.success) {
         // Only update booked room IDs if we added the room as an attendee
         if (mode === "both" || mode === "attendee") {
@@ -302,6 +306,25 @@ export function TaskPane() {
         {error && (
           <p className="mt-2 text-xs text-destructive">{error}</p>
         )}
+      </div>
+    );
+  }
+
+  if (appState === "not-authorized") {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8">
+        <ShieldAlert className="size-12 text-destructive" />
+        <h3 className="mt-4 font-semibold">Access Denied</h3>
+        <p className="mt-2 text-sm text-muted-foreground text-center max-w-[280px]">
+          You are not a member of the required security groups to use this add-in.
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground text-center max-w-[280px]">
+          Please contact your IT administrator to be added to the EA-Cambridge or EA-Oakland group.
+        </p>
+        <Button variant="outline" onClick={handleRefresh} className="mt-4">
+          <RefreshCw className="size-4 mr-2" />
+          Try Again
+        </Button>
       </div>
     );
   }

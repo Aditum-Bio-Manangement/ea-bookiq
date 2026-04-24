@@ -70,6 +70,17 @@ export async function getSchedule(
 }
 
 /**
+ * Check if two time ranges overlap
+ */
+function timeRangesOverlap(
+  start1: Date, end1: Date,
+  start2: Date, end2: Date
+): boolean {
+  // Two ranges overlap if one starts before the other ends AND ends after the other starts
+  return start1 < end2 && end1 > start2;
+}
+
+/**
  * Check availability for a list of rooms during a specific time window
  */
 export async function checkRoomAvailability(
@@ -99,14 +110,23 @@ export async function checkRoomAvailability(
 
     if (!room) continue;
 
-    // A room is available if it has no busy/tentative items during the window
-    const isAvailable = !scheduleInfo.scheduleItems.some(
-      (item) => item.status === "busy" || item.status === "tentative"
-    );
+    // Check if any busy/tentative items actually overlap with the requested time window
+    const hasConflict = scheduleInfo.scheduleItems.some((item) => {
+      if (item.status !== "busy" && item.status !== "tentative") {
+        return false;
+      }
+
+      // Parse the schedule item times
+      const itemStart = new Date(item.start.dateTime + (item.start.dateTime.endsWith("Z") ? "" : "Z"));
+      const itemEnd = new Date(item.end.dateTime + (item.end.dateTime.endsWith("Z") ? "" : "Z"));
+
+      // Check if this busy time overlaps with our requested window
+      return timeRangesOverlap(startTime, endTime, itemStart, itemEnd);
+    });
 
     availability.push({
       room,
-      isAvailable,
+      isAvailable: !hasConflict,
       scheduleItems: scheduleInfo.scheduleItems,
       availabilityView: scheduleInfo.availabilityView,
     });

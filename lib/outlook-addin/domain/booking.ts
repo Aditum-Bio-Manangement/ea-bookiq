@@ -41,27 +41,32 @@ export async function bookRoom(
 
     // Handle attendee addition (for "both" or "attendee" modes)
     if (mode === "both" || mode === "attendee") {
-      // Check if room is already added as attendee
+      // Check if this specific room is already added as attendee
       const alreadyAdded = await isRoomAlreadyAdded(room.emailAddress);
-      if (alreadyAdded && mode === "attendee") {
-        return {
-          success: false,
-          message: `${room.displayName} is already added as an attendee.`,
-          room,
-          mode,
-        };
-      }
 
-      if (!alreadyAdded) {
-        // Check if another room is already added and remove it (only in "both" mode)
+      if (alreadyAdded) {
+        if (mode === "attendee") {
+          return {
+            success: false,
+            message: `${room.displayName} is already added as an attendee.`,
+            room,
+            mode,
+          };
+        }
+        // In "both" mode, room is already added - just update location
+      } else {
+        // Room is not added yet - check for and replace any existing room first
         if (mode === "both" && allRoomEmails && allRoomEmails.length > 0) {
           const addedRooms = await getAddedRoomEmails(allRoomEmails);
           if (addedRooms.size > 0) {
             // Remove existing room(s) - typically there's only one
             for (const existingRoomEmail of addedRooms) {
-              console.log("[AB Book IQ] Removing existing room:", existingRoomEmail);
-              await removeRoomAttendee(existingRoomEmail);
-              replacedRoomEmail = existingRoomEmail;
+              // Don't remove the room we're trying to add
+              if (existingRoomEmail.toLowerCase() !== room.emailAddress.toLowerCase()) {
+                console.log("[AB Book IQ] Removing existing room:", existingRoomEmail);
+                await removeRoomAttendee(existingRoomEmail);
+                replacedRoomEmail = existingRoomEmail;
+              }
             }
           }
         }
