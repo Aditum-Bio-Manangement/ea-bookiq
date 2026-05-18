@@ -99,10 +99,13 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
     let pendingCount = 2; // required + optional attendees
 
     // Check if resources API is available (RequirementSet 1.7+)
-    const hasResources = typeof (item as any).resources?.getAsync === 'function';
+    // In classic Outlook, resources might be accessible through a different API
+    const hasResources = item && typeof (item as any).resources?.getAsync === 'function';
     if (hasResources) {
       pendingCount = 3; // also fetch resources
     }
+
+    console.log("[AB Book IQ] hasResources API:", hasResources);
 
     const checkComplete = () => {
       pendingCount--;
@@ -121,7 +124,9 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
             recipientType: "required",
           });
         }
-        console.log("[AB Book IQ] Required attendees:", result.value.length);
+        console.log("[AB Book IQ] Required attendees:", result.value.length, result.value.map((a: any) => a.displayName));
+      } else {
+        console.log("[AB Book IQ] Failed to get required attendees:", result.error?.message);
       }
       checkComplete();
     });
@@ -136,6 +141,8 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
           });
         }
         console.log("[AB Book IQ] Optional attendees:", result.value.length);
+      } else {
+        console.log("[AB Book IQ] Failed to get optional attendees:", result.error?.message);
       }
       checkComplete();
     });
@@ -151,7 +158,7 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
               recipientType: "resource",
             });
           }
-          console.log("[AB Book IQ] Resources (rooms):", result.value.length);
+          console.log("[AB Book IQ] Resources (rooms):", result.value.length, result.value.map((r: any) => r.displayName));
         } else {
           console.log("[AB Book IQ] Failed to get resources:", result.error?.message);
         }
@@ -242,8 +249,9 @@ export async function isRoomAlreadyAdded(emailAddress: string): Promise<boolean>
 
 /**
  * Get list of room email addresses that are already added to the meeting
+ * Checks attendees/resources AND location field as fallback
  */
-export async function getAddedRoomEmails(allRoomEmails: string[]): Promise<Set<string>> {
+export async function getAddedRoomEmails(allRoomEmails: string[], allRoomNames?: string[]): Promise<Set<string>> {
   const attendees = await getCurrentAttendees();
   const attendeeEmails = new Set(attendees.map(a => a.emailAddress.toLowerCase()));
   const addedRooms = new Set<string>();
@@ -252,10 +260,32 @@ export async function getAddedRoomEmails(allRoomEmails: string[]): Promise<Set<s
     attendees.map(a => ({ name: a.displayName, email: a.emailAddress, type: a.recipientType }))
   );
 
+  // Check attendee emails
   for (const roomEmail of allRoomEmails) {
     if (attendeeEmails.has(roomEmail.toLowerCase())) {
       addedRooms.add(roomEmail.toLowerCase());
-      console.log(`[AB Book IQ] Found booked room: ${roomEmail}`);
+      console.log(`[AB Book IQ] Found booked room via attendee: ${roomEmail}`);
+    }
+  }
+
+  // Also check location as a fallback (in case resources API doesn't work)
+  if (allRoomNames && allRoomNames.length > 0) {
+    const location = await getLocation();
+    if (location) {
+      console.log(`[AB Book IQ] Current location: "${location}"`);
+      // Check if location matches any room name
+      for (let i = 0; i < allRoomNames.length; i++) {
+        const roomName = allRoomNames[i];
+        const roomEmail = allRoomEmails[i];
+        // Check if location contains the room name (case-insensitive)
+        if (location.toLowerCase().includes(roomName.toLowerCase()) ||
+          roomName.toLowerCase().includes(location.toLowerCase())) {
+          if (!addedRooms.has(roomEmail.toLowerCase())) {
+            addedRooms.add(roomEmail.toLowerCase());
+            console.log(`[AB Book IQ] Found booked room via location match: ${roomName} -> ${roomEmail}`);
+          }
+        }
+      }
     }
   }
 

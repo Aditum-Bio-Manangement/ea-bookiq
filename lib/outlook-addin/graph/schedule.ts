@@ -117,9 +117,10 @@ export async function checkRoomAvailability(
     timeZone
   );
 
-  console.log("[AB Book IQ] Schedule response for availability check:", {
+  console.log("[AB Book IQ] Schedule API request:", {
     requestedStart: startTime.toISOString(),
     requestedEnd: endTime.toISOString(),
+    timeZone: timeZone,
     roomCount: rooms.length,
   });
 
@@ -131,6 +132,16 @@ export async function checkRoomAvailability(
     );
 
     if (!room) continue;
+
+    console.log(`[AB Book IQ] Schedule for ${room.displayName}:`, {
+      availabilityView: scheduleInfo.availabilityView,
+      scheduleItems: scheduleInfo.scheduleItems.map(item => ({
+        status: item.status,
+        start: item.start,
+        end: item.end,
+        subject: item.subject || '(no subject)'
+      }))
+    });
 
     // Check if any busy/tentative items actually overlap with the requested time window
     let hasConflict = false;
@@ -147,14 +158,16 @@ export async function checkRoomAvailability(
       // Check if this busy time overlaps with our requested window
       const overlaps = timeRangesOverlap(startTime, endTime, itemStart, itemEnd);
 
+      console.log(`[AB Book IQ] Checking overlap for ${room.displayName}:`, {
+        itemStart: itemStart.toISOString(),
+        itemEnd: itemEnd.toISOString(),
+        requestedStart: startTime.toISOString(),
+        requestedEnd: endTime.toISOString(),
+        overlaps: overlaps,
+        status: item.status,
+      });
+
       if (overlaps) {
-        console.log(`[AB Book IQ] Conflict found for ${room.displayName}:`, {
-          busyStart: itemStart.toISOString(),
-          busyEnd: itemEnd.toISOString(),
-          requestedStart: startTime.toISOString(),
-          requestedEnd: endTime.toISOString(),
-          status: item.status,
-        });
         hasConflict = true;
         break;
       }
@@ -170,6 +183,8 @@ export async function checkRoomAvailability(
         hasConflict = true;
       }
     }
+
+    console.log(`[AB Book IQ] ${room.displayName} final availability: ${hasConflict ? 'UNAVAILABLE' : 'AVAILABLE'}`);
 
     availability.push({
       room,

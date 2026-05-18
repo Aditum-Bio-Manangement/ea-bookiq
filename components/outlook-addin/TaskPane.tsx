@@ -146,18 +146,20 @@ export function TaskPane() {
       // Check which rooms are already added to the meeting (in Outlook context)
       // This ensures booked rooms are properly detected even after refresh
       const roomEmails = officeRooms.map(r => r.emailAddress);
+      const roomNames = officeRooms.map(r => r.displayName);
       const newBookedIds = new Set<string>();
-      
+
       if (isInOutlook()) {
-        const addedRooms = await getAddedRoomEmails(roomEmails);
-        // Update bookedRoomIds based on actual meeting attendees
+        const addedRooms = await getAddedRoomEmails(roomEmails, roomNames);
+        // Update bookedRoomIds based on actual meeting attendees/location
         for (const room of officeRooms) {
           if (addedRooms.has(room.emailAddress.toLowerCase())) {
             newBookedIds.add(room.id);
           }
         }
+        console.log("[AB Book IQ] Booked room IDs:", Array.from(newBookedIds));
       }
-      
+
       setBookedRoomIds(newBookedIds);
 
       // Check availability using the meeting window date/time
@@ -211,7 +213,7 @@ export function TaskPane() {
       // Get all room emails for replacement logic (only used in "both" mode)
       const allRoomEmails = rooms.map(r => r.room.emailAddress);
       const result = await bookRoom(room, allRoomEmails, mode);
-      
+
       if (result.success) {
         // Only update booked room IDs if we added the room as an attendee
         if (mode === "both" || mode === "attendee") {
