@@ -169,59 +169,60 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
- * Add a room as a resource attendee (or required attendee if resources API unavailable)
+ * Add a room to both required attendees AND resources (for maximum compatibility)
+ * This ensures the room shows up properly in both old and new Outlook
  */
 export async function addRoomAttendee(
   displayName: string,
   emailAddress: string
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const item = getMailboxItem();
     if (!item) {
       reject(new Error("No appointment item available"));
       return;
     }
 
-    // Check if resources API is available (preferred for rooms)
-    const hasResources = typeof (item as any).resources?.addAsync === 'function';
+    try {
+      // Check if resources API is available
+      const hasResources = typeof (item as any).resources?.addAsync === 'function';
 
-    if (hasResources) {
-      // Add to resources collection (proper way to add rooms)
-      (item as any).resources.addAsync(
-        [{ displayName, emailAddress }],
-        (result: any) => {
-          if (result.status === Office.AsyncResultStatus.Succeeded) {
-            console.log("[AB Book IQ] Added room to resources:", displayName);
-            resolve();
-          } else {
-            // Fallback to required attendees if resources fails
-            console.log("[AB Book IQ] Resources addAsync failed, falling back to requiredAttendees");
-            item.requiredAttendees.addAsync(
-              [{ displayName, emailAddress }],
-              (fallbackResult: any) => {
-                if (fallbackResult.status === Office.AsyncResultStatus.Succeeded) {
-                  resolve();
-                } else {
-                  reject(new Error(fallbackResult.error?.message || "Failed to add attendee"));
-                }
+      // Always add to required attendees first (works on all Outlook versions)
+      await new Promise<void>((res, rej) => {
+        item.requiredAttendees.addAsync(
+          [{ displayName, emailAddress }],
+          (result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+              res();
+            } else {
+              console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
+              rej(new Error(result.error?.message || "Failed to add attendee"));
+            }
+          }
+        );
+      });
+
+      // Also add to resources if available (for proper room handling in modern Outlook)
+      if (hasResources) {
+        await new Promise<void>((res) => {
+          (item as any).resources.addAsync(
+            [{ displayName, emailAddress }],
+            (result: any) => {
+              if (result.status === Office.AsyncResultStatus.Succeeded) {
+                console.log("[AB Book IQ] Also added room to resources:", displayName);
+              } else {
+                console.log("[AB Book IQ] Resources addAsync failed (non-critical):", result.error?.message);
               }
-            );
-          }
-        }
-      );
-    } else {
-      // Fall back to required attendees for older Outlook versions
-      item.requiredAttendees.addAsync(
-        [{ displayName, emailAddress }],
-        (result: any) => {
-          if (result.status === Office.AsyncResultStatus.Succeeded) {
-            console.log("[AB Book IQ] Added room to requiredAttendees (no resources API):", displayName);
-            resolve();
-          } else {
-            reject(new Error(result.error?.message || "Failed to add attendee"));
-          }
-        }
-      );
+              res(); // Don't fail if resources fails - requiredAttendees is the primary
+            }
+          );
+        });
+      }
+
+      resolve();
+    } catch (err) {
+      reject(err);
     }
   });
 }

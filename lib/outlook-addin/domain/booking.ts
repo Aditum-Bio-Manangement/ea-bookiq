@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails, clearLocation } from "../office/appointment";
+import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -142,11 +142,12 @@ export async function unbookRoom(room: Room): Promise<BookingResult> {
       };
     }
 
-    // Remove the room attendee
+    // Remove the room attendee (from both resources and required attendees)
     await removeRoomAttendee(room.emailAddress);
 
-    // Clear the location if it matches this room
-    await clearLocation(room.displayName);
+    // Always clear the location (set to empty string)
+    await setLocation("");
+    console.log("[AB Book IQ] Cleared location after unbooking");
 
     showNotification(`${room.displayName} removed from meeting.`);
 

@@ -39,6 +39,21 @@ export interface RoomAvailability {
 }
 
 /**
+ * Format a Date to local time string in ISO format without timezone suffix
+ * This preserves the local time values for the Graph API
+ */
+function formatDateToLocalISOString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+}
+
+/**
  * Get free/busy schedule for multiple rooms
  */
 export async function getSchedule(
@@ -49,18 +64,30 @@ export async function getSchedule(
 ): Promise<GetScheduleResponse> {
   const client = await getGraphClient();
 
+  // Format dates as local time strings (not UTC) for the API
+  // The Graph API expects the datetime in the timezone specified
+  const startDateTimeLocal = formatDateToLocalISOString(startTime);
+  const endDateTimeLocal = formatDateToLocalISOString(endTime);
+
   const requestBody = {
     schedules: roomEmails,
     startTime: {
-      dateTime: startTime.toISOString().replace("Z", ""),
+      dateTime: startDateTimeLocal,
       timeZone: timeZone,
     },
     endTime: {
-      dateTime: endTime.toISOString().replace("Z", ""),
+      dateTime: endDateTimeLocal,
       timeZone: timeZone,
     },
     availabilityViewInterval: 30, // 30-minute intervals
   };
+
+  console.log("[AB Book IQ] getSchedule request:", {
+    startTime: startDateTimeLocal,
+    endTime: endDateTimeLocal,
+    timeZone: timeZone,
+    roomCount: roomEmails.length,
+  });
 
   const response: GetScheduleResponse = await client
     .api("/me/calendar/getSchedule")
@@ -73,16 +100,18 @@ export async function getSchedule(
  * Parse a schedule item datetime into a Date object
  * The Graph API returns datetime in the format specified by the timeZone field
  */
-function parseScheduleDateTime(timeSlot: TimeSlot): Date {
+function parseScheduleDateTime(timeSlot: TimeSlot, requestedTimeZone: string): Date {
   // If the datetime already has timezone info (Z or +/-offset), parse directly
   if (timeSlot.dateTime.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(timeSlot.dateTime)) {
     return new Date(timeSlot.dateTime);
   }
 
-  // For datetimes without timezone suffix, treat as the specified timezone
-  // Since we request in user's local timezone, we can parse as local
-  // The datetime format is typically "2026-05-22T13:30:00.0000000"
-  return new Date(timeSlot.dateTime);
+  // The datetime is in the format "2026-05-22T13:30:00.0000000" without timezone
+  // The timeSlot.timeZone indicates what timezone this is in
+  // Since we requested in the user's local timezone and the API returns in the same timezone,
+  // we can parse it as a local time
+  const dateStr = timeSlot.dateTime.split('.')[0]; // Remove milliseconds if present
+  return new Date(dateStr);
 }
 
 /**
@@ -152,8 +181,8 @@ export async function checkRoomAvailability(
       }
 
       // Parse the schedule item times using proper timezone handling
-      const itemStart = parseScheduleDateTime(item.start);
-      const itemEnd = parseScheduleDateTime(item.end);
+      const itemStart = parseScheduleDateTime(item.start, timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+      const itemEnd = parseScheduleDateTime(item.end, timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone);
 
       // Check if this busy time overlaps with our requested window
       const overlaps = timeRangesOverlap(startTime, endTime, itemStart, itemEnd);
