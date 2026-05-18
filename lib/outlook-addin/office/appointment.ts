@@ -238,6 +238,17 @@ export async function getLocation(): Promise<string> {
 }
 
 /**
+ * Clear the location if it matches the given room name
+ */
+export async function clearLocation(roomName: string): Promise<void> {
+  const currentLocation = await getLocation();
+  // Only clear if the location contains the room name
+  if (currentLocation.toLowerCase().includes(roomName.toLowerCase())) {
+    await setLocation("");
+  }
+}
+
+/**
  * Check if a room is already added as an attendee
  */
 export async function isRoomAlreadyAdded(emailAddress: string): Promise<boolean> {

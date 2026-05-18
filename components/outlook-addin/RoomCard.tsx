@@ -18,6 +18,7 @@ import type { BookingMode } from "@/lib/outlook-addin/domain/booking";
 interface RoomCardProps {
   roomAvailability: RoomAvailability;
   onBook: (room: RoomAvailability["room"], mode: BookingMode) => void;
+  onUnbook?: (room: RoomAvailability["room"]) => void;
   isBooking?: boolean;
   isBooked?: boolean;
 }
@@ -25,6 +26,7 @@ interface RoomCardProps {
 export function RoomCard({
   roomAvailability,
   onBook,
+  onUnbook,
   isBooking = false,
   isBooked = false,
 }: RoomCardProps) {
@@ -62,10 +64,22 @@ export function RoomCard({
           {/* Action buttons - fixed width, never wraps */}
           <div className="shrink-0 flex items-center gap-1">
             {isBooked ? (
-              <Badge variant="default" className="text-xs">
-                <Check className="size-3 mr-1" />
-                Booked
-              </Badge>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => onUnbook?.(room)}
+                disabled={isBooking}
+                className="h-7 px-2 text-xs"
+              >
+                {isBooking ? (
+                  <Spinner className="size-3" />
+                ) : (
+                  <>
+                    <Check className="size-3 mr-1" />
+                    Booked
+                  </>
+                )}
+              </Button>
             ) : isAvailable ? (
               <>
                 {/* Main book button - adds as attendee + location */}

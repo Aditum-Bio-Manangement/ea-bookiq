@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails } from "../office/appointment";
+import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails, clearLocation } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -128,20 +128,41 @@ export async function bookRoom(
 }
 
 /**
- * Remove a room from the appointment (if supported)
- * Note: Office.js may not support removing specific attendees in all versions
+ * Remove a room from the appointment
  */
-export async function removeRoom(room: Room): Promise<BookingResult> {
-  // Note: Office.js doesn't have a direct removeAttendee method in older requirement sets
-  // For now, we'll return a message indicating the user needs to remove manually
-  showNotification(
-    `To remove ${room.displayName}, please use the attendee list.`,
-    "informational"
-  );
+export async function unbookRoom(room: Room): Promise<BookingResult> {
+  try {
+    // Check if we're in Outlook context
+    if (!isInOutlookContext()) {
+      return {
+        success: true,
+        message: `${room.displayName} removed. Open this add-in from Outlook to update the meeting.`,
+        room,
+        isPreviewMode: true,
+      };
+    }
 
-  return {
-    success: false,
-    message: `Please remove ${room.displayName} manually from the attendee list.`,
-    room,
-  };
+    // Remove the room attendee
+    await removeRoomAttendee(room.emailAddress);
+
+    // Clear the location if it matches this room
+    await clearLocation(room.displayName);
+
+    showNotification(`${room.displayName} removed from meeting.`);
+
+    return {
+      success: true,
+      message: `${room.displayName} removed from meeting.`,
+      room,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to remove room";
+    console.error("[AB Book IQ] Unbook failed:", error);
+
+    return {
+      success: false,
+      message,
+      room,
+    };
+  }
 }

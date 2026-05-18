@@ -17,7 +17,7 @@ import { resolveOffice, setCachedOfficePreference, getAllOffices, type OfficeRes
 import { getRoomsForOffice, type Room } from "@/lib/outlook-addin/graph/places";
 import { checkRoomAvailability, type RoomAvailability } from "@/lib/outlook-addin/graph/schedule";
 import { rankRooms } from "@/lib/outlook-addin/domain/roomRanker";
-import { bookRoom, type BookingMode } from "@/lib/outlook-addin/domain/booking";
+import { bookRoom, unbookRoom, type BookingMode } from "@/lib/outlook-addin/domain/booking";
 import { isMsalConfigured, type OfficeConfig } from "@/lib/outlook-addin/config/offices";
 
 type AppState = "initializing" | "sign-in" | "select-office" | "loading" | "ready" | "error" | "not-configured" | "not-authorized";
@@ -244,6 +244,29 @@ export function TaskPane() {
     }
   };
 
+  const handleUnbookRoom = async (room: Room) => {
+    setBookingRoomId(room.id);
+    try {
+      const result = await unbookRoom(room);
+
+      if (result.success) {
+        // Remove from booked room IDs
+        setBookedRoomIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(room.id);
+          return newSet;
+        });
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      console.error("[AB Book IQ] Unbook error:", err);
+      setError(err instanceof Error ? err.message : "Failed to unbook room");
+    } finally {
+      setBookingRoomId(null);
+    }
+  };
+
   const handleRefresh = async () => {
     if (selectedOffice) {
       setIsRefreshing(true);
@@ -438,6 +461,7 @@ export function TaskPane() {
                         key={roomAvail.room.id}
                         roomAvailability={roomAvail}
                         onBook={handleBookRoom}
+                        onUnbook={handleUnbookRoom}
                         isBooking={bookingRoomId === roomAvail.room.id}
                         isBooked={bookedRoomIds.has(roomAvail.room.id)}
                       />
@@ -463,6 +487,7 @@ export function TaskPane() {
                         key={roomAvail.room.id}
                         roomAvailability={roomAvail}
                         onBook={handleBookRoom}
+                        onUnbook={handleUnbookRoom}
                         isBooking={bookingRoomId === roomAvail.room.id}
                         isBooked={bookedRoomIds.has(roomAvail.room.id)}
                       />
