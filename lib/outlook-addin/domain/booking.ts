@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, getAddedRoomEmails } from "../office/appointment";
+import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, removeAllRooms } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -15,7 +15,7 @@ export interface BookingResult {
 
 /**
  * Book a room by adding it to the appointment
- * If another room is already booked as attendee, it will be replaced
+ * Removes any existing rooms first, then adds the new room to both required attendees AND resources
  * @param mode - "both" (default): add as attendee + set location, "attendee": only add as attendee, "location": only set location
  */
 export async function bookRoom(
@@ -26,7 +26,6 @@ export async function bookRoom(
   try {
     // Check if we're in Outlook context
     if (!isInOutlookContext()) {
-      // Preview mode - show success message but note it's a simulation
       console.log("[AB Book IQ] Preview mode - simulating room booking for:", room.displayName);
       return {
         success: true,
@@ -37,68 +36,32 @@ export async function bookRoom(
       };
     }
 
-    let replacedRoomEmail: string | undefined;
+    let replacedRoom = false;
 
     // Handle attendee addition (for "both" or "attendee" modes)
     if (mode === "both" || mode === "attendee") {
-      // Check if this specific room is already added as attendee
-      const alreadyAdded = await isRoomAlreadyAdded(room.emailAddress);
-
-      if (alreadyAdded) {
-        // Room is already added - prevent duplicate booking
-        if (mode === "attendee") {
-          return {
-            success: false,
-            message: `${room.displayName} is already added as an attendee.`,
-            room,
-            mode,
-          };
-        }
-        // In "both" mode, if room is already added, just update location and return success
-        // without adding it again
-        if (mode === "both") {
-          await setLocation(room.displayName);
-          showNotification(`${room.displayName} location updated.`);
-          return {
-            success: true,
-            message: `${room.displayName} is already booked. Location updated.`,
-            room,
-            mode,
-          };
-        }
-      } else {
-        // Room is not added yet - check for and replace any existing room first
-        if (mode === "both" && allRoomEmails && allRoomEmails.length > 0) {
-          const addedRooms = await getAddedRoomEmails(allRoomEmails);
-          if (addedRooms.size > 0) {
-            // Remove existing room(s) - typically there's only one
-            for (const existingRoomEmail of addedRooms) {
-              // Don't remove the room we're trying to add
-              if (existingRoomEmail.toLowerCase() !== room.emailAddress.toLowerCase()) {
-                console.log("[AB Book IQ] Removing existing room:", existingRoomEmail);
-                await removeRoomAttendee(existingRoomEmail);
-                replacedRoomEmail = existingRoomEmail;
-              }
-            }
-          }
-        }
-
-        // Add room as attendee
-        await addRoomAttendee(room.displayName, room.emailAddress);
+      // First, remove ALL existing rooms from the meeting to ensure only one room is booked
+      if (allRoomEmails && allRoomEmails.length > 0) {
+        console.log("[AB Book IQ] Removing all existing rooms before booking new one");
+        await removeAllRooms(allRoomEmails);
+        replacedRoom = true;
       }
+
+      // Now add the new room as attendee (to both required attendees and resources)
+      console.log("[AB Book IQ] Adding room:", room.displayName);
+      await addRoomAttendee(room.displayName, room.emailAddress);
     }
 
     // Handle location setting (for "both" or "location" modes)
     if (mode === "both" || mode === "location") {
       await setLocation(room.displayName);
+      console.log("[AB Book IQ] Set location to:", room.displayName);
     }
 
     // Build notification message
     let message: string;
     if (mode === "both") {
-      message = replacedRoomEmail
-        ? `${room.displayName} replaced previous room.`
-        : `${room.displayName} added to meeting.`;
+      message = `${room.displayName} added to meeting.`;
     } else if (mode === "attendee") {
       message = `${room.displayName} added as attendee.`;
     } else {
@@ -111,7 +74,6 @@ export async function bookRoom(
       success: true,
       message,
       room,
-      replacedRoomEmail,
       mode,
     };
   } catch (error) {
@@ -129,8 +91,9 @@ export async function bookRoom(
 
 /**
  * Remove a room from the appointment
+ * Removes from both required attendees and resources, and clears location
  */
-export async function unbookRoom(room: Room): Promise<BookingResult> {
+export async function unbookRoom(room: Room, allRoomEmails?: string[]): Promise<BookingResult> {
   try {
     // Check if we're in Outlook context
     if (!isInOutlookContext()) {
@@ -142,13 +105,17 @@ export async function unbookRoom(room: Room): Promise<BookingResult> {
       };
     }
 
-    // Remove the room attendee (from both resources and required attendees)
-    await removeRoomAttendee(room.emailAddress);
+    // Remove the specific room (or all rooms if allRoomEmails provided)
+    if (allRoomEmails && allRoomEmails.length > 0) {
+      // Remove all rooms to ensure clean state
+      await removeAllRooms(allRoomEmails);
+    } else {
+      // Remove just this specific room
+      await removeRoomAttendee(room.emailAddress);
+      await setLocation("");
+    }
 
-    // Always clear the location (set to empty string)
-    await setLocation("");
-    console.log("[AB Book IQ] Cleared location after unbooking");
-
+    console.log("[AB Book IQ] Room unbooked:", room.displayName);
     showNotification(`${room.displayName} removed from meeting.`);
 
     return {

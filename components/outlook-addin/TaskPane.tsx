@@ -217,21 +217,8 @@ export function TaskPane() {
       if (result.success) {
         // Only update booked room IDs if we added the room as an attendee
         if (mode === "both" || mode === "attendee") {
-          setBookedRoomIds((prev) => {
-            const newSet = new Set(prev);
-            // If a room was replaced, remove it from booked set
-            if (result.replacedRoomEmail) {
-              const replacedRoom = rooms.find(
-                r => r.room.emailAddress.toLowerCase() === result.replacedRoomEmail?.toLowerCase()
-              );
-              if (replacedRoom) {
-                newSet.delete(replacedRoom.room.id);
-              }
-            }
-            // Add the newly booked room
-            newSet.add(room.id);
-            return newSet;
-          });
+          // Clear all other booked rooms and set only the new one
+          setBookedRoomIds(new Set([room.id]));
         }
       } else {
         setError(result.message);
@@ -247,15 +234,13 @@ export function TaskPane() {
   const handleUnbookRoom = async (room: Room) => {
     setBookingRoomId(room.id);
     try {
-      const result = await unbookRoom(room);
+      // Pass all room emails to ensure complete removal
+      const allRoomEmails = rooms.map(r => r.room.emailAddress);
+      const result = await unbookRoom(room, allRoomEmails);
 
       if (result.success) {
-        // Remove from booked room IDs
-        setBookedRoomIds((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(room.id);
-          return newSet;
-        });
+        // Clear all booked room IDs (since we removed all rooms)
+        setBookedRoomIds(new Set());
       } else {
         setError(result.message);
       }

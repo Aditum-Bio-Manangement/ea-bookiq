@@ -349,16 +349,13 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
 
     try {
       const normalizedEmail = emailToRemove.toLowerCase();
-      const organizerEmail = getOrganizerEmail().toLowerCase();
-      let removedFromResources = false;
-      let removedFromRequired = false;
 
       // Check if resources API is available (for rooms/equipment)
       const hasResources = typeof (item as any).resources?.getAsync === 'function';
 
       if (hasResources) {
-        // Try to remove from resources first (where rooms usually are)
-        await new Promise<void>((res, rej) => {
+        // Remove from resources
+        await new Promise<void>((res) => {
           (item as any).resources.getAsync((result: any) => {
             if (result.status === Office.AsyncResultStatus.Succeeded) {
               const currentResources = result.value || [];
@@ -367,11 +364,9 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
               );
 
               if (filtered.length < currentResources.length) {
-                // Room was found in resources, remove it
                 (item as any).resources.setAsync(filtered, (setResult: any) => {
                   if (setResult.status === Office.AsyncResultStatus.Succeeded) {
                     console.log("[AB Book IQ] Removed room from resources:", emailToRemove);
-                    removedFromResources = true;
                   }
                   res();
                 });
@@ -379,28 +374,25 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
                 res();
               }
             } else {
-              res(); // Resources API failed, continue with requiredAttendees
+              res();
             }
           });
         });
       }
 
-      // Also check and remove from required attendees (fallback)
+      // Remove from required attendees
       await new Promise<void>((res) => {
         item.requiredAttendees.getAsync((result: any) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const currentAttendees = result.value || [];
-            // Filter out the room, but keep the organizer and other attendees
             const filtered = currentAttendees.filter(
               (a: any) => a.emailAddress.toLowerCase() !== normalizedEmail
             );
 
             if (filtered.length < currentAttendees.length) {
-              // Room was found in required attendees, remove it
               item.requiredAttendees.setAsync(filtered, (setResult: any) => {
                 if (setResult.status === Office.AsyncResultStatus.Succeeded) {
                   console.log("[AB Book IQ] Removed room from required attendees:", emailToRemove);
-                  removedFromRequired = true;
                 }
                 res();
               });
@@ -413,12 +405,86 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
         });
       });
 
-      if (removedFromResources || removedFromRequired) {
-        resolve();
-      } else {
-        console.log("[AB Book IQ] Room not found in attendees or resources:", emailToRemove);
-        resolve(); // Resolve anyway, room might already be removed
+      resolve();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * Remove ALL rooms from the meeting (both resources and required attendees)
+ * Used when replacing a room with another
+ */
+export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
+  return new Promise(async (resolve, reject) => {
+    const item = getMailboxItem();
+    if (!item) {
+      reject(new Error("No appointment item available"));
+      return;
+    }
+
+    try {
+      const roomEmailsLower = new Set(allRoomEmails.map(e => e.toLowerCase()));
+
+      // Check if resources API is available
+      const hasResources = typeof (item as any).resources?.getAsync === 'function';
+
+      // Clear ALL resources (rooms)
+      if (hasResources) {
+        await new Promise<void>((res) => {
+          (item as any).resources.getAsync((result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              const currentResources = result.value || [];
+              if (currentResources.length > 0) {
+                // Set to empty array to clear all resources
+                (item as any).resources.setAsync([], (setResult: any) => {
+                  if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                    console.log("[AB Book IQ] Cleared all resources");
+                  }
+                  res();
+                });
+              } else {
+                res();
+              }
+            } else {
+              res();
+            }
+          });
+        });
       }
+
+      // Remove rooms from required attendees (keeping non-room attendees)
+      await new Promise<void>((res) => {
+        item.requiredAttendees.getAsync((result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            const currentAttendees = result.value || [];
+            // Keep only attendees that are NOT rooms
+            const filtered = currentAttendees.filter(
+              (a: any) => !roomEmailsLower.has(a.emailAddress.toLowerCase())
+            );
+
+            if (filtered.length < currentAttendees.length) {
+              item.requiredAttendees.setAsync(filtered, (setResult: any) => {
+                if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                  console.log("[AB Book IQ] Removed rooms from required attendees, kept:", filtered.length);
+                }
+                res();
+              });
+            } else {
+              res();
+            }
+          } else {
+            res();
+          }
+        });
+      });
+
+      // Clear location
+      await setLocation("");
+      console.log("[AB Book IQ] Cleared location");
+
+      resolve();
     } catch (err) {
       reject(err);
     }
