@@ -211,7 +211,10 @@ export function TaskPane() {
     setBookingRoomId(room.id);
     try {
       // Get all room emails for replacement logic (only used in "both" mode)
-      const allRoomEmails = rooms.map(r => r.room.emailAddress);
+      // Safely handle case where rooms array might be empty
+      const allRoomEmails = rooms && rooms.length > 0
+        ? rooms.map(r => r.room.emailAddress)
+        : [room.emailAddress];
       const result = await bookRoom(room, allRoomEmails, mode);
 
       if (result.success) {
@@ -235,7 +238,10 @@ export function TaskPane() {
     setBookingRoomId(room.id);
     try {
       // Pass all room emails to ensure complete removal
-      const allRoomEmails = rooms.map(r => r.room.emailAddress);
+      // Safely handle case where rooms array might be empty
+      const allRoomEmails = rooms && rooms.length > 0
+        ? rooms.map(r => r.room.emailAddress)
+        : [room.emailAddress];
       const result = await unbookRoom(room, allRoomEmails);
 
       if (result.success) {
