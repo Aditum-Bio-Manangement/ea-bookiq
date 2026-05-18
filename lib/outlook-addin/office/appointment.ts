@@ -169,7 +169,7 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
- * Add a room as a required attendee
+ * Add a room as a resource attendee (or required attendee if resources API unavailable)
  */
 export async function addRoomAttendee(
   displayName: string,
@@ -182,16 +182,47 @@ export async function addRoomAttendee(
       return;
     }
 
-    item.requiredAttendees.addAsync(
-      [{ displayName, emailAddress }],
-      (result: any) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
-          resolve();
-        } else {
-          reject(new Error(result.error?.message || "Failed to add attendee"));
+    // Check if resources API is available (preferred for rooms)
+    const hasResources = typeof (item as any).resources?.addAsync === 'function';
+
+    if (hasResources) {
+      // Add to resources collection (proper way to add rooms)
+      (item as any).resources.addAsync(
+        [{ displayName, emailAddress }],
+        (result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            console.log("[AB Book IQ] Added room to resources:", displayName);
+            resolve();
+          } else {
+            // Fallback to required attendees if resources fails
+            console.log("[AB Book IQ] Resources addAsync failed, falling back to requiredAttendees");
+            item.requiredAttendees.addAsync(
+              [{ displayName, emailAddress }],
+              (fallbackResult: any) => {
+                if (fallbackResult.status === Office.AsyncResultStatus.Succeeded) {
+                  resolve();
+                } else {
+                  reject(new Error(fallbackResult.error?.message || "Failed to add attendee"));
+                }
+              }
+            );
+          }
         }
-      }
-    );
+      );
+    } else {
+      // Fall back to required attendees for older Outlook versions
+      item.requiredAttendees.addAsync(
+        [{ displayName, emailAddress }],
+        (result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            console.log("[AB Book IQ] Added room to requiredAttendees (no resources API):", displayName);
+            resolve();
+          } else {
+            reject(new Error(result.error?.message || "Failed to add attendee"));
+          }
+        }
+      );
+    }
   });
 }
 
@@ -305,6 +336,7 @@ export async function getAddedRoomEmails(allRoomEmails: string[], allRoomNames?:
 
 /**
  * Remove a room attendee by setting attendees list without that room
+ * Handles both requiredAttendees and resources collections
  */
 export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
   return new Promise(async (resolve, reject) => {
@@ -315,22 +347,77 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
     }
 
     try {
-      // Get current required attendees
-      const attendees = await getCurrentAttendees();
+      const normalizedEmail = emailToRemove.toLowerCase();
+      const organizerEmail = getOrganizerEmail().toLowerCase();
+      let removedFromResources = false;
+      let removedFromRequired = false;
 
-      // Filter out the room to remove
-      const remainingRequired = attendees
-        .filter(a => a.recipientType === "required" && a.emailAddress.toLowerCase() !== emailToRemove.toLowerCase())
-        .map(a => ({ displayName: a.displayName, emailAddress: a.emailAddress }));
+      // Check if resources API is available (for rooms/equipment)
+      const hasResources = typeof (item as any).resources?.getAsync === 'function';
 
-      // Set the filtered list (this replaces all required attendees)
-      item.requiredAttendees.setAsync(remainingRequired, (result: any) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
-          resolve();
-        } else {
-          reject(new Error(result.error?.message || "Failed to remove attendee"));
-        }
+      if (hasResources) {
+        // Try to remove from resources first (where rooms usually are)
+        await new Promise<void>((res, rej) => {
+          (item as any).resources.getAsync((result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              const currentResources = result.value || [];
+              const filtered = currentResources.filter(
+                (r: any) => r.emailAddress.toLowerCase() !== normalizedEmail
+              );
+
+              if (filtered.length < currentResources.length) {
+                // Room was found in resources, remove it
+                (item as any).resources.setAsync(filtered, (setResult: any) => {
+                  if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                    console.log("[AB Book IQ] Removed room from resources:", emailToRemove);
+                    removedFromResources = true;
+                  }
+                  res();
+                });
+              } else {
+                res();
+              }
+            } else {
+              res(); // Resources API failed, continue with requiredAttendees
+            }
+          });
+        });
+      }
+
+      // Also check and remove from required attendees (fallback)
+      await new Promise<void>((res) => {
+        item.requiredAttendees.getAsync((result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            const currentAttendees = result.value || [];
+            // Filter out the room, but keep the organizer and other attendees
+            const filtered = currentAttendees.filter(
+              (a: any) => a.emailAddress.toLowerCase() !== normalizedEmail
+            );
+
+            if (filtered.length < currentAttendees.length) {
+              // Room was found in required attendees, remove it
+              item.requiredAttendees.setAsync(filtered, (setResult: any) => {
+                if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                  console.log("[AB Book IQ] Removed room from required attendees:", emailToRemove);
+                  removedFromRequired = true;
+                }
+                res();
+              });
+            } else {
+              res();
+            }
+          } else {
+            res();
+          }
+        });
       });
+
+      if (removedFromResources || removedFromRequired) {
+        resolve();
+      } else {
+        console.log("[AB Book IQ] Room not found in attendees or resources:", emailToRemove);
+        resolve(); // Resolve anyway, room might already be removed
+      }
     } catch (err) {
       reject(err);
     }
