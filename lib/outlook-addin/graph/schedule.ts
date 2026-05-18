@@ -70,6 +70,22 @@ export async function getSchedule(
 }
 
 /**
+ * Parse a schedule item datetime into a Date object
+ * The Graph API returns datetime in the format specified by the timeZone field
+ */
+function parseScheduleDateTime(timeSlot: TimeSlot): Date {
+  // If the datetime already has timezone info (Z or +/-offset), parse directly
+  if (timeSlot.dateTime.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(timeSlot.dateTime)) {
+    return new Date(timeSlot.dateTime);
+  }
+
+  // For datetimes without timezone suffix, treat as the specified timezone
+  // Since we request in user's local timezone, we can parse as local
+  // The datetime format is typically "2026-05-22T13:30:00.0000000"
+  return new Date(timeSlot.dateTime);
+}
+
+/**
  * Check if two time ranges overlap
  */
 function timeRangesOverlap(
@@ -101,6 +117,12 @@ export async function checkRoomAvailability(
     timeZone
   );
 
+  console.log("[AB Book IQ] Schedule response for availability check:", {
+    requestedStart: startTime.toISOString(),
+    requestedEnd: endTime.toISOString(),
+    roomCount: rooms.length,
+  });
+
   const availability: RoomAvailability[] = [];
 
   for (const scheduleInfo of scheduleResponse.value) {
@@ -111,18 +133,43 @@ export async function checkRoomAvailability(
     if (!room) continue;
 
     // Check if any busy/tentative items actually overlap with the requested time window
-    const hasConflict = scheduleInfo.scheduleItems.some((item) => {
+    let hasConflict = false;
+
+    for (const item of scheduleInfo.scheduleItems) {
       if (item.status !== "busy" && item.status !== "tentative") {
-        return false;
+        continue;
       }
 
-      // Parse the schedule item times
-      const itemStart = new Date(item.start.dateTime + (item.start.dateTime.endsWith("Z") ? "" : "Z"));
-      const itemEnd = new Date(item.end.dateTime + (item.end.dateTime.endsWith("Z") ? "" : "Z"));
+      // Parse the schedule item times using proper timezone handling
+      const itemStart = parseScheduleDateTime(item.start);
+      const itemEnd = parseScheduleDateTime(item.end);
 
       // Check if this busy time overlaps with our requested window
-      return timeRangesOverlap(startTime, endTime, itemStart, itemEnd);
-    });
+      const overlaps = timeRangesOverlap(startTime, endTime, itemStart, itemEnd);
+
+      if (overlaps) {
+        console.log(`[AB Book IQ] Conflict found for ${room.displayName}:`, {
+          busyStart: itemStart.toISOString(),
+          busyEnd: itemEnd.toISOString(),
+          requestedStart: startTime.toISOString(),
+          requestedEnd: endTime.toISOString(),
+          status: item.status,
+        });
+        hasConflict = true;
+        break;
+      }
+    }
+
+    // Also check the availabilityView string which shows busy status
+    // '0' = free, '1' = tentative, '2' = busy, '3' = OOF, '4' = working elsewhere
+    if (!hasConflict && scheduleInfo.availabilityView) {
+      const busyIndicators = ['1', '2', '3']; // tentative, busy, OOF
+      const hasBusyView = scheduleInfo.availabilityView.split('').some(char => busyIndicators.includes(char));
+      if (hasBusyView) {
+        console.log(`[AB Book IQ] ${room.displayName} marked unavailable via availabilityView: ${scheduleInfo.availabilityView}`);
+        hasConflict = true;
+      }
+    }
 
     availability.push({
       room,

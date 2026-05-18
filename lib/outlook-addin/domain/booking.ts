@@ -45,6 +45,7 @@ export async function bookRoom(
       const alreadyAdded = await isRoomAlreadyAdded(room.emailAddress);
 
       if (alreadyAdded) {
+        // Room is already added - prevent duplicate booking
         if (mode === "attendee") {
           return {
             success: false,
@@ -53,7 +54,18 @@ export async function bookRoom(
             mode,
           };
         }
-        // In "both" mode, room is already added - just update location
+        // In "both" mode, if room is already added, just update location and return success
+        // without adding it again
+        if (mode === "both") {
+          await setLocation(room.displayName);
+          showNotification(`${room.displayName} location updated.`);
+          return {
+            success: true,
+            message: `${room.displayName} is already booked. Location updated.`,
+            room,
+            mode,
+          };
+        }
       } else {
         // Room is not added yet - check for and replace any existing room first
         if (mode === "both" && allRoomEmails && allRoomEmails.length > 0) {

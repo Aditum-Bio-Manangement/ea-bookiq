@@ -85,7 +85,7 @@ export async function getMeetingWindow(): Promise<MeetingWindow> {
 }
 
 /**
- * Get current attendees of the appointment
+ * Get current attendees of the appointment (including resources in newer requirement sets)
  */
 export async function getCurrentAttendees(): Promise<Attendee[]> {
   return new Promise((resolve) => {
@@ -96,11 +96,18 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
     }
 
     const attendees: Attendee[] = [];
-    let resolved = 0;
+    let pendingCount = 2; // required + optional attendees
+
+    // Check if resources API is available (RequirementSet 1.7+)
+    const hasResources = typeof (item as any).resources?.getAsync === 'function';
+    if (hasResources) {
+      pendingCount = 3; // also fetch resources
+    }
 
     const checkComplete = () => {
-      resolved++;
-      if (resolved === 2) {
+      pendingCount--;
+      if (pendingCount === 0) {
+        console.log("[AB Book IQ] All attendees fetched:", attendees.length, "total");
         resolve(attendees);
       }
     };
@@ -114,6 +121,7 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
             recipientType: "required",
           });
         }
+        console.log("[AB Book IQ] Required attendees:", result.value.length);
       }
       checkComplete();
     });
@@ -127,9 +135,29 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
             recipientType: "optional",
           });
         }
+        console.log("[AB Book IQ] Optional attendees:", result.value.length);
       }
       checkComplete();
     });
+
+    // Try to get resources (rooms/equipment) if available
+    if (hasResources) {
+      (item as any).resources.getAsync((result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          for (const res of result.value) {
+            attendees.push({
+              displayName: res.displayName,
+              emailAddress: res.emailAddress,
+              recipientType: "resource",
+            });
+          }
+          console.log("[AB Book IQ] Resources (rooms):", result.value.length);
+        } else {
+          console.log("[AB Book IQ] Failed to get resources:", result.error?.message);
+        }
+        checkComplete();
+      });
+    }
   });
 }
 
@@ -220,9 +248,14 @@ export async function getAddedRoomEmails(allRoomEmails: string[]): Promise<Set<s
   const attendeeEmails = new Set(attendees.map(a => a.emailAddress.toLowerCase()));
   const addedRooms = new Set<string>();
 
+  console.log("[AB Book IQ] Checking for added rooms. Attendees:",
+    attendees.map(a => ({ name: a.displayName, email: a.emailAddress, type: a.recipientType }))
+  );
+
   for (const roomEmail of allRoomEmails) {
     if (attendeeEmails.has(roomEmail.toLowerCase())) {
       addedRooms.add(roomEmail.toLowerCase());
+      console.log(`[AB Book IQ] Found booked room: ${roomEmail}`);
     }
   }
 

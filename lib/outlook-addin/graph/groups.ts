@@ -15,39 +15,39 @@ const EA_OAKLAND_EMAIL = "ea-oakland@aditumbio.com";
 
 /**
  * Check if the user is a member of a specific group by email
- * Uses checkMemberGroups API for direct membership check
+ * Uses memberOf API which works for all group types including distribution lists
  */
 async function checkGroupMembership(groupEmail: string): Promise<boolean> {
   const client = await getGraphClient();
 
   try {
-    // First, find the group ID by email
-    const groupResponse = await client
-      .api("/groups")
-      .filter(`mail eq '${groupEmail}'`)
-      .select("id,displayName,mail")
+    // Get all groups the user is a member of (including transitive membership)
+    // This works for security groups, Microsoft 365 groups, and distribution lists
+    const memberOfResponse = await client
+      .api("/me/memberOf")
+      .select("id,displayName,mail,mailEnabled,securityEnabled")
+      .top(999)
       .get();
 
-    if (!groupResponse.value || groupResponse.value.length === 0) {
-      console.log(`[AB Book IQ] Group not found: ${groupEmail}`);
+    if (!memberOfResponse.value || memberOfResponse.value.length === 0) {
+      console.log(`[AB Book IQ] User has no group memberships`);
       return false;
     }
 
-    const groupId = groupResponse.value[0].id;
-    const groupName = groupResponse.value[0].displayName;
-    console.log(`[AB Book IQ] Found group ${groupName} (${groupEmail}) with ID: ${groupId}`);
+    // Check if any of the user's groups match the target email
+    const normalizedTargetEmail = groupEmail.toLowerCase();
+    const matchingGroup = memberOfResponse.value.find((group: any) => {
+      const groupMail = group.mail?.toLowerCase();
+      return groupMail === normalizedTargetEmail;
+    });
 
-    // Check if the current user is a member of this group
-    const memberCheckResponse = await client
-      .api("/me/checkMemberGroups")
-      .post({
-        groupIds: [groupId]
-      });
+    if (matchingGroup) {
+      console.log(`[AB Book IQ] User IS a member of ${matchingGroup.displayName} (${groupEmail})`);
+      return true;
+    }
 
-    const isMember = memberCheckResponse.value && memberCheckResponse.value.includes(groupId);
-    console.log(`[AB Book IQ] User membership in ${groupName}: ${isMember}`);
-
-    return isMember;
+    console.log(`[AB Book IQ] User is NOT a member of ${groupEmail}`);
+    return false;
   } catch (err) {
     console.error(`[AB Book IQ] Error checking membership for ${groupEmail}:`, err);
     return false;
