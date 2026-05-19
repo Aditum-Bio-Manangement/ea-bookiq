@@ -15,7 +15,7 @@ export interface BookingResult {
 
 /**
  * Book a room by adding it to the appointment
- * Removes any existing rooms first, then adds the new room to both required attendees AND resources
+ * Removes any existing rooms first, then adds the new room using the best available APIs
  * @param mode - "both" (default): add as attendee + set location, "attendee": only add as attendee, "location": only set location
  */
 export async function bookRoom(
@@ -36,26 +36,21 @@ export async function bookRoom(
       };
     }
 
-    let replacedRoom = false;
-
     // Handle attendee addition (for "both" or "attendee" modes)
     if (mode === "both" || mode === "attendee") {
       // First, remove ALL existing rooms from the meeting to ensure only one room is booked
       if (allRoomEmails && allRoomEmails.length > 0) {
         console.log("[AB Book IQ] Removing all existing rooms before booking new one");
         await removeAllRooms(allRoomEmails);
-        replacedRoom = true;
       }
 
-      // Now add the new room as attendee (to both required attendees and resources)
+      // Now add the new room (addRoomAttendee handles enhancedLocation, requiredAttendees, resources, and location)
       console.log("[AB Book IQ] Adding room:", room.displayName);
       await addRoomAttendee(room.displayName, room.emailAddress);
-    }
-
-    // Handle location setting (for "both" or "location" modes)
-    if (mode === "both" || mode === "location") {
+    } else if (mode === "location") {
+      // Only set location (no attendee changes)
       await setLocation(room.displayName);
-      console.log("[AB Book IQ] Set location to:", room.displayName);
+      console.log("[AB Book IQ] Set location only to:", room.displayName);
     }
 
     // Build notification message
