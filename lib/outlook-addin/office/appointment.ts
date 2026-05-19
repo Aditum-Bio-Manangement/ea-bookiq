@@ -169,8 +169,9 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
- * Add a room to the meeting using the best available API
- * Uses enhancedLocation for modern Outlook, falls back to requiredAttendees/resources for older versions
+ * Add a room to the meeting
+ * Modern Outlook: Use enhancedLocation ONLY (handles everything)
+ * Old Outlook: Use requiredAttendees ONLY (Outlook auto-routes rooms to resources)
  */
 export async function addRoomAttendee(
   displayName: string,
@@ -184,15 +185,14 @@ export async function addRoomAttendee(
     }
 
     try {
-      // Check which APIs are available
+      // Check if enhancedLocation API is available (modern Outlook)
       const hasEnhancedLocation = typeof (item as any).enhancedLocation?.addAsync === 'function';
-      const hasResources = typeof (item as any).resources?.addAsync === 'function';
 
-      console.log("[AB Book IQ] addRoomAttendee - hasEnhancedLocation:", hasEnhancedLocation, "hasResources:", hasResources);
+      console.log("[AB Book IQ] addRoomAttendee - hasEnhancedLocation:", hasEnhancedLocation);
 
-      // Method 1: Use enhancedLocation API (best for rooms in requirement set 1.8+)
       if (hasEnhancedLocation) {
-        await new Promise<void>((res) => {
+        // Modern Outlook: Use ONLY enhancedLocation (it handles attendees, resources, and location)
+        await new Promise<void>((res, rej) => {
           const locationIdentifier = {
             id: emailAddress,
             type: Office.MailboxEnums.LocationType.Room
@@ -200,54 +200,31 @@ export async function addRoomAttendee(
           (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
             if (result.status === Office.AsyncResultStatus.Succeeded) {
               console.log("[AB Book IQ] Added room via enhancedLocation:", displayName);
-            } else {
-              console.log("[AB Book IQ] enhancedLocation.addAsync failed:", result.error?.message);
-            }
-            res();
-          });
-        });
-      }
-
-      // Method 2: Add to required attendees (for old Outlook compatibility)
-      await new Promise<void>((res, rej) => {
-        item.requiredAttendees.addAsync(
-          [{ displayName, emailAddress }],
-          (result: any) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-              console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
               res();
             } else {
-              console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
-              // Don't reject if enhancedLocation succeeded
-              if (hasEnhancedLocation) {
-                res();
-              } else {
-                rej(new Error(result.error?.message || "Failed to add attendee"));
-              }
+              console.log("[AB Book IQ] enhancedLocation.addAsync failed:", result.error?.message);
+              rej(new Error(result.error?.message || "Failed to add room"));
             }
-          }
-        );
-      });
-
-      // Method 3: Also add to resources if available
-      if (hasResources) {
-        await new Promise<void>((res) => {
-          (item as any).resources.addAsync(
+          });
+        });
+      } else {
+        // Old Outlook: Use ONLY requiredAttendees (Outlook auto-routes room emails to resources)
+        await new Promise<void>((res, rej) => {
+          item.requiredAttendees.addAsync(
             [{ displayName, emailAddress }],
             (result: any) => {
               if (result.status === Office.AsyncResultStatus.Succeeded) {
-                console.log("[AB Book IQ] Also added room to resources:", displayName);
+                console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+                res();
               } else {
-                console.log("[AB Book IQ] Resources addAsync failed (non-critical):", result.error?.message);
+                console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
+                rej(new Error(result.error?.message || "Failed to add attendee"));
               }
-              res();
             }
           );
         });
-      }
 
-      // Method 4: Set basic location as fallback
-      if (!hasEnhancedLocation) {
+        // Also set basic location for old Outlook
         await setLocation(displayName);
         console.log("[AB Book IQ] Set basic location:", displayName);
       }
@@ -456,8 +433,9 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
 }
 
 /**
- * Remove ALL rooms from the meeting using the best available APIs
- * Used when replacing a room with another or unbooking
+ * Remove ALL rooms from the meeting
+ * Modern Outlook: Use enhancedLocation ONLY
+ * Old Outlook: Clear resources AND filter requiredAttendees (rooms may be in either)
  */
 export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
   return new Promise(async (resolve, reject) => {
@@ -477,116 +455,104 @@ export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
 
       console.log("[AB Book IQ] removeAllRooms - hasEnhancedLocation:", hasEnhancedLocation, "hasResources:", hasResources);
 
-      // Method 1: Use enhancedLocation API to remove room locations (best for requirement set 1.8+)
       if (hasEnhancedLocation) {
+        // Modern Outlook: Use ONLY enhancedLocation to remove rooms
         await new Promise<void>((res) => {
           (item as any).enhancedLocation.getAsync((result: any) => {
             if (result.status === Office.AsyncResultStatus.Succeeded && result.value && result.value.length > 0) {
               const locations = result.value;
-              console.log("[AB Book IQ] Current enhancedLocations:", locations.map((l: any) => ({ id: l.locationIdentifier?.id, type: l.locationIdentifier?.type, name: l.displayName })));
+              console.log("[AB Book IQ] Current enhancedLocations:", locations.map((l: any) => ({ id: l.locationIdentifier?.id, type: l.locationIdentifier?.type })));
 
               // Find all room locations to remove
               const roomLocationsToRemove = locations
                 .filter((loc: any) => {
                   const locId = loc.locationIdentifier?.id?.toLowerCase() || '';
                   const locType = loc.locationIdentifier?.type;
-                  // Remove if it's a Room type or if the ID matches a room email
-                  return locType === Office.MailboxEnums.LocationType.Room ||
-                    roomEmailsLower.has(locId);
+                  return locType === Office.MailboxEnums.LocationType.Room || roomEmailsLower.has(locId);
                 })
                 .map((loc: any) => loc.locationIdentifier);
 
               if (roomLocationsToRemove.length > 0) {
-                console.log("[AB Book IQ] Removing room locations:", roomLocationsToRemove);
+                console.log("[AB Book IQ] Removing room locations:", roomLocationsToRemove.length);
                 (item as any).enhancedLocation.removeAsync(roomLocationsToRemove, (removeResult: any) => {
                   if (removeResult.status === Office.AsyncResultStatus.Succeeded) {
-                    console.log("[AB Book IQ] Removed rooms via enhancedLocation successfully");
+                    console.log("[AB Book IQ] Removed rooms via enhancedLocation");
                   } else {
                     console.log("[AB Book IQ] enhancedLocation.removeAsync failed:", removeResult.error?.message);
                   }
                   res();
                 });
               } else {
-                console.log("[AB Book IQ] No room locations found to remove");
                 res();
               }
             } else {
-              console.log("[AB Book IQ] enhancedLocation.getAsync returned no locations or failed");
               res();
             }
           });
         });
-      }
-
-      // Method 2: Clear ALL resources (rooms) if the API is available
-      if (hasResources) {
-        await new Promise<void>((res) => {
-          (item as any).resources.getAsync((result: any) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-              const currentResources = result.value || [];
-              console.log("[AB Book IQ] Current resources before clear:", currentResources.length, currentResources.map((r: any) => r.displayName));
-              if (currentResources.length > 0) {
-                (item as any).resources.setAsync([], (setResult: any) => {
-                  if (setResult.status === Office.AsyncResultStatus.Succeeded) {
-                    console.log("[AB Book IQ] Cleared all resources successfully");
-                  } else {
-                    console.log("[AB Book IQ] Failed to clear resources:", setResult.error?.message);
-                  }
+      } else {
+        // Old Outlook: Clear resources collection if available
+        if (hasResources) {
+          await new Promise<void>((res) => {
+            (item as any).resources.getAsync((result: any) => {
+              if (result.status === Office.AsyncResultStatus.Succeeded) {
+                const currentResources = result.value || [];
+                console.log("[AB Book IQ] Current resources:", currentResources.length);
+                if (currentResources.length > 0) {
+                  (item as any).resources.setAsync([], (setResult: any) => {
+                    if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                      console.log("[AB Book IQ] Cleared all resources");
+                    } else {
+                      console.log("[AB Book IQ] Failed to clear resources:", setResult.error?.message);
+                    }
+                    res();
+                  });
+                } else {
                   res();
-                });
+                }
               } else {
                 res();
               }
+            });
+          });
+        }
+
+        // Old Outlook: Also filter rooms from required attendees
+        await new Promise<void>((res) => {
+          item.requiredAttendees.getAsync((result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              const currentAttendees = result.value || [];
+              console.log("[AB Book IQ] Current required attendees:", currentAttendees.map((a: any) => a.emailAddress));
+
+              const filtered = currentAttendees
+                .filter((a: any) => {
+                  const email = a.emailAddress.toLowerCase();
+                  if (roomEmailsLower.has(email)) return false;
+                  if (email === organizerEmail) return false;
+                  return true;
+                })
+                .map((a: any) => ({ displayName: a.displayName, emailAddress: a.emailAddress }));
+
+              console.log("[AB Book IQ] After filtering, keeping:", filtered.length, "attendees");
+
+              item.requiredAttendees.setAsync(filtered, (setResult: any) => {
+                if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                  console.log("[AB Book IQ] Updated required attendees");
+                } else {
+                  console.log("[AB Book IQ] Failed to update required attendees:", setResult.error?.message);
+                }
+                res();
+              });
             } else {
-              console.log("[AB Book IQ] Failed to get resources:", result.error?.message);
               res();
             }
           });
         });
+
+        // Old Outlook: Clear basic location
+        await setLocation("");
+        console.log("[AB Book IQ] Cleared location");
       }
-
-      // Method 3: Remove rooms from required attendees (keeping non-room attendees like people)
-      await new Promise<void>((res) => {
-        item.requiredAttendees.getAsync((result: any) => {
-          if (result.status === Office.AsyncResultStatus.Succeeded) {
-            const currentAttendees = result.value || [];
-            console.log("[AB Book IQ] Current required attendees before filter:",
-              currentAttendees.map((a: any) => ({ name: a.displayName, email: a.emailAddress }))
-            );
-
-            // Keep only attendees that are NOT rooms AND not the organizer
-            const filtered = currentAttendees
-              .filter((a: any) => {
-                const email = a.emailAddress.toLowerCase();
-                if (roomEmailsLower.has(email)) return false;
-                if (email === organizerEmail) return false;
-                return true;
-              })
-              .map((a: any) => ({
-                displayName: a.displayName,
-                emailAddress: a.emailAddress
-              }));
-
-            console.log("[AB Book IQ] After filtering, keeping:", filtered.length, "attendees");
-
-            item.requiredAttendees.setAsync(filtered, (setResult: any) => {
-              if (setResult.status === Office.AsyncResultStatus.Succeeded) {
-                console.log("[AB Book IQ] Updated required attendees successfully");
-              } else {
-                console.log("[AB Book IQ] Failed to update required attendees:", setResult.error?.message);
-              }
-              res();
-            });
-          } else {
-            console.log("[AB Book IQ] Failed to get required attendees:", result.error?.message);
-            res();
-          }
-        });
-      });
-
-      // Method 4: Clear basic location as fallback
-      await setLocation("");
-      console.log("[AB Book IQ] Cleared location");
 
       resolve();
     } catch (err) {
