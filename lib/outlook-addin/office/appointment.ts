@@ -352,6 +352,7 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
 
     try {
       const normalizedEmail = emailToRemove.toLowerCase();
+      const organizerEmail = getOrganizerEmail().toLowerCase();
 
       // Check if resources API is available (for rooms/equipment)
       const hasResources = typeof (item as any).resources?.getAsync === 'function';
@@ -362,9 +363,9 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
           (item as any).resources.getAsync((result: any) => {
             if (result.status === Office.AsyncResultStatus.Succeeded) {
               const currentResources = result.value || [];
-              const filtered = currentResources.filter(
-                (r: any) => r.emailAddress.toLowerCase() !== normalizedEmail
-              );
+              const filtered = currentResources
+                .filter((r: any) => r.emailAddress.toLowerCase() !== normalizedEmail)
+                .map((r: any) => ({ displayName: r.displayName, emailAddress: r.emailAddress }));
 
               if (filtered.length < currentResources.length) {
                 (item as any).resources.setAsync(filtered, (setResult: any) => {
@@ -388,9 +389,17 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
         item.requiredAttendees.getAsync((result: any) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const currentAttendees = result.value || [];
-            const filtered = currentAttendees.filter(
-              (a: any) => a.emailAddress.toLowerCase() !== normalizedEmail
-            );
+            const filtered = currentAttendees
+              .filter((a: any) => {
+                const email = a.emailAddress.toLowerCase();
+                // Remove the specified room
+                if (email === normalizedEmail) return false;
+                // Also filter out the organizer if they're accidentally in the list
+                if (email === organizerEmail) return false;
+                return true;
+              })
+              // Re-create objects with only required properties for old Outlook compatibility
+              .map((a: any) => ({ displayName: a.displayName, emailAddress: a.emailAddress }));
 
             if (filtered.length < currentAttendees.length) {
               item.requiredAttendees.setAsync(filtered, (setResult: any) => {
@@ -429,11 +438,12 @@ export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
 
     try {
       const roomEmailsLower = new Set(allRoomEmails.map(e => e.toLowerCase()));
+      const organizerEmail = getOrganizerEmail().toLowerCase();
 
       // Check if resources API is available
       const hasResources = typeof (item as any).resources?.setAsync === 'function';
 
-      console.log("[AB Book IQ] removeAllRooms - hasResources:", hasResources);
+      console.log("[AB Book IQ] removeAllRooms - hasResources:", hasResources, "organizer:", organizerEmail);
 
       // Clear ALL resources (rooms) if the API is available
       if (hasResources) {
@@ -472,14 +482,26 @@ export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
               currentAttendees.map((a: any) => ({ name: a.displayName, email: a.emailAddress }))
             );
 
-            // Keep only attendees that are NOT rooms
-            const filtered = currentAttendees.filter(
-              (a: any) => !roomEmailsLower.has(a.emailAddress.toLowerCase())
-            );
+            // Keep only attendees that are NOT rooms AND not the organizer (organizer shouldn't be in attendees)
+            const filtered = currentAttendees
+              .filter((a: any) => {
+                const email = a.emailAddress.toLowerCase();
+                // Skip rooms
+                if (roomEmailsLower.has(email)) return false;
+                // Skip if this is the organizer (they shouldn't be in required attendees)
+                if (email === organizerEmail) return false;
+                return true;
+              })
+              // Re-create the attendee objects with only the required properties
+              // This is important for old Outlook compatibility
+              .map((a: any) => ({
+                displayName: a.displayName,
+                emailAddress: a.emailAddress
+              }));
 
-            console.log("[AB Book IQ] After filtering out rooms, keeping:", filtered.length, "attendees");
+            console.log("[AB Book IQ] After filtering, keeping:", filtered.length, "attendees:", filtered);
 
-            // Always set the filtered list (even if same length) to ensure clean state
+            // Set the filtered list
             item.requiredAttendees.setAsync(filtered, (setResult: any) => {
               if (setResult.status === Office.AsyncResultStatus.Succeeded) {
                 console.log("[AB Book IQ] Updated required attendees successfully");
