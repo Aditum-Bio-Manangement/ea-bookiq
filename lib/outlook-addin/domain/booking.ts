@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, removeAllRooms } from "../office/appointment";
+import { addRoomAttendee, setLocation, setRoomAsLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, removeAllRooms } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -48,8 +48,9 @@ export async function bookRoom(
       console.log("[AB Book IQ] Adding room:", room.displayName);
       await addRoomAttendee(room.displayName, room.emailAddress);
     } else if (mode === "location") {
-      // Only set location (no attendee changes)
-      await setLocation(room.displayName);
+      // Only set location (no attendee changes). Uses enhancedLocation on
+      // modern Outlook so the room resolves properly instead of "Unknown".
+      await setRoomAsLocation(room.displayName, room.emailAddress);
       console.log("[AB Book IQ] Set location only to:", room.displayName);
     }
 

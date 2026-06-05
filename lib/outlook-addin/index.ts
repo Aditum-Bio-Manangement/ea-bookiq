@@ -17,7 +17,7 @@ export type { OfficeConfig } from "./config/offices";
 
 // Graph Services
 export { getGraphClient, resetGraphClient } from "./graph/graphClient";
-export { getTransitiveGroupMemberships, resolveUserOffices, isUserInOffice } from "./graph/groups";
+export { resolveUserOffices, isUserInOffice } from "./graph/groups";
 export { getRoomLists, getRoomsForOffice, getRoomsByBuilding } from "./graph/places";
 export type { Room, RoomList } from "./graph/places";
 export { getSchedule, checkRoomAvailability, filterAvailableRooms, sortRoomsByPreference } from "./graph/schedule";
@@ -29,6 +29,7 @@ export {
   getCurrentAttendees,
   addRoomAttendee,
   setLocation,
+  setRoomAsLocation,
   getLocation,
   isRoomAlreadyAdded,
   getOrganizerEmail,
@@ -53,7 +54,7 @@ export {
   getAllOffices,
 } from "./domain/officeResolver";
 export type { OfficeResolutionResult } from "./domain/officeResolver";
-export { bookRoom, removeRoom } from "./domain/booking";
+export { bookRoom } from "./domain/booking";
 export type { BookingResult } from "./domain/booking";
 export { rankRooms, groupRoomsByAvailability, getRoomFeatures } from "./domain/roomRanker";
 export type { RankingOptions } from "./domain/roomRanker";

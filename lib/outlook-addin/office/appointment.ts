@@ -170,8 +170,14 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 
 /**
  * Add a room to the meeting
- * Modern Outlook: Use enhancedLocation ONLY (handles everything)
- * Old Outlook: Use requiredAttendees ONLY (Outlook auto-routes rooms to resources)
+ * Behaves the same on all Outlook versions: room is added BOTH as a
+ * required attendee AND as the meeting location.
+ *
+ * Modern Outlook: enhancedLocation.addAsync sets the location, but does NOT
+ *   add the room as a required attendee, so we explicitly add it to
+ *   requiredAttendees as well.
+ * Old Outlook: requiredAttendees.addAsync auto-routes the room to resources,
+ *   and we set the basic location field.
  */
 export async function addRoomAttendee(
   displayName: string,
@@ -190,9 +196,30 @@ export async function addRoomAttendee(
 
       console.log("[AB Book IQ] addRoomAttendee - hasEnhancedLocation:", hasEnhancedLocation);
 
+      // Step 1: Add the room as a required attendee (works on all versions).
+      // This is what makes the room a real meeting participant. On old Outlook
+      // this also auto-routes the room into the resources/room collection.
+      await new Promise<void>((res, rej) => {
+        item.requiredAttendees.addAsync(
+          [{ displayName, emailAddress }],
+          (result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+              res();
+            } else {
+              console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
+              rej(new Error(result.error?.message || "Failed to add attendee"));
+            }
+          }
+        );
+      });
+
+      // Step 2: Set the location.
       if (hasEnhancedLocation) {
-        // Modern Outlook: Use ONLY enhancedLocation (it handles attendees, resources, and location)
-        await new Promise<void>((res, rej) => {
+        // Modern Outlook: use enhancedLocation so the room shows as a proper
+        // resolved room location (not just plain text). This does NOT add it
+        // as an attendee, which is why Step 1 above is required.
+        await new Promise<void>((res) => {
           const locationIdentifier = {
             id: emailAddress,
             type: Office.MailboxEnums.LocationType.Room
@@ -200,31 +227,14 @@ export async function addRoomAttendee(
           (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
             if (result.status === Office.AsyncResultStatus.Succeeded) {
               console.log("[AB Book IQ] Added room via enhancedLocation:", displayName);
-              res();
             } else {
-              console.log("[AB Book IQ] enhancedLocation.addAsync failed:", result.error?.message);
-              rej(new Error(result.error?.message || "Failed to add room"));
+              console.log("[AB Book IQ] enhancedLocation.addAsync failed (non-critical):", result.error?.message);
             }
+            res();
           });
         });
       } else {
-        // Old Outlook: Use ONLY requiredAttendees (Outlook auto-routes room emails to resources)
-        await new Promise<void>((res, rej) => {
-          item.requiredAttendees.addAsync(
-            [{ displayName, emailAddress }],
-            (result: any) => {
-              if (result.status === Office.AsyncResultStatus.Succeeded) {
-                console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
-                res();
-              } else {
-                console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
-                rej(new Error(result.error?.message || "Failed to add attendee"));
-              }
-            }
-          );
-        });
-
-        // Also set basic location for old Outlook
+        // Old Outlook: set the basic location text field.
         await setLocation(displayName);
         console.log("[AB Book IQ] Set basic location:", displayName);
       }
@@ -256,6 +266,54 @@ export async function setLocation(location: string): Promise<void> {
         reject(new Error(result.error?.message || "Failed to set location"));
       }
     });
+  });
+}
+
+/**
+ * Set a room as the meeting location WITHOUT adding it as an attendee.
+ * Modern Outlook: use enhancedLocation so the room resolves to a proper room
+ *   location (avoids the "Unknown" plain-text label).
+ * Old Outlook: fall back to setting the basic location text field.
+ */
+export async function setRoomAsLocation(
+  displayName: string,
+  emailAddress: string
+): Promise<void> {
+  return new Promise(async (resolve, reject) => {
+    const item = getMailboxItem();
+    if (!item) {
+      reject(new Error("No appointment item available"));
+      return;
+    }
+
+    try {
+      const hasEnhancedLocation = typeof (item as any).enhancedLocation?.addAsync === 'function';
+
+      if (hasEnhancedLocation) {
+        await new Promise<void>((res) => {
+          const locationIdentifier = {
+            id: emailAddress,
+            type: Office.MailboxEnums.LocationType.Room
+          };
+          (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              console.log("[AB Book IQ] Set room as location via enhancedLocation:", displayName);
+            } else {
+              console.log("[AB Book IQ] enhancedLocation.addAsync failed, falling back to text location:", result.error?.message);
+            }
+            res();
+          });
+        });
+      } else {
+        await setLocation(displayName);
+        console.log("[AB Book IQ] Set basic location:", displayName);
+      }
+
+      resolve();
+    } catch (err) {
+      console.error("[AB Book IQ] setRoomAsLocation error:", err);
+      reject(err);
+    }
   });
 }
 
@@ -433,9 +491,14 @@ export async function removeRoomAttendee(emailToRemove: string): Promise<void> {
 }
 
 /**
- * Remove ALL rooms from the meeting
- * Modern Outlook: Use enhancedLocation ONLY
- * Old Outlook: Clear resources AND filter requiredAttendees (rooms may be in either)
+ * Remove ALL rooms from the meeting.
+ * Since rooms are now added BOTH as required attendees AND as the location on
+ * every Outlook version, removal must clean up both places.
+ *
+ * Modern Outlook: remove room locations via enhancedLocation AND filter the
+ *   room out of requiredAttendees.
+ * Old Outlook: clear resources, filter requiredAttendees, and clear the basic
+ *   location text field.
  */
 export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
   return new Promise(async (resolve, reject) => {
@@ -455,8 +518,8 @@ export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
 
       console.log("[AB Book IQ] removeAllRooms - hasEnhancedLocation:", hasEnhancedLocation, "hasResources:", hasResources);
 
+      // Step 1 (modern Outlook only): remove room locations via enhancedLocation
       if (hasEnhancedLocation) {
-        // Modern Outlook: Use ONLY enhancedLocation to remove rooms
         await new Promise<void>((res) => {
           (item as any).enhancedLocation.getAsync((result: any) => {
             if (result.status === Office.AsyncResultStatus.Succeeded && result.value && result.value.length > 0) {
@@ -490,66 +553,68 @@ export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
             }
           });
         });
-      } else {
-        // Old Outlook: Clear resources collection if available
-        if (hasResources) {
-          await new Promise<void>((res) => {
-            (item as any).resources.getAsync((result: any) => {
-              if (result.status === Office.AsyncResultStatus.Succeeded) {
-                const currentResources = result.value || [];
-                console.log("[AB Book IQ] Current resources:", currentResources.length);
-                if (currentResources.length > 0) {
-                  (item as any).resources.setAsync([], (setResult: any) => {
-                    if (setResult.status === Office.AsyncResultStatus.Succeeded) {
-                      console.log("[AB Book IQ] Cleared all resources");
-                    } else {
-                      console.log("[AB Book IQ] Failed to clear resources:", setResult.error?.message);
-                    }
-                    res();
-                  });
-                } else {
+      }
+
+      // Step 2 (old Outlook only): clear the resources collection
+      if (!hasEnhancedLocation && hasResources) {
+        await new Promise<void>((res) => {
+          (item as any).resources.getAsync((result: any) => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) {
+              const currentResources = result.value || [];
+              console.log("[AB Book IQ] Current resources:", currentResources.length);
+              if (currentResources.length > 0) {
+                (item as any).resources.setAsync([], (setResult: any) => {
+                  if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                    console.log("[AB Book IQ] Cleared all resources");
+                  } else {
+                    console.log("[AB Book IQ] Failed to clear resources:", setResult.error?.message);
+                  }
                   res();
-                }
+                });
               } else {
                 res();
               }
-            });
-          });
-        }
-
-        // Old Outlook: Also filter rooms from required attendees
-        await new Promise<void>((res) => {
-          item.requiredAttendees.getAsync((result: any) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-              const currentAttendees = result.value || [];
-              console.log("[AB Book IQ] Current required attendees:", currentAttendees.map((a: any) => a.emailAddress));
-
-              const filtered = currentAttendees
-                .filter((a: any) => {
-                  const email = a.emailAddress.toLowerCase();
-                  if (roomEmailsLower.has(email)) return false;
-                  if (email === organizerEmail) return false;
-                  return true;
-                })
-                .map((a: any) => ({ displayName: a.displayName, emailAddress: a.emailAddress }));
-
-              console.log("[AB Book IQ] After filtering, keeping:", filtered.length, "attendees");
-
-              item.requiredAttendees.setAsync(filtered, (setResult: any) => {
-                if (setResult.status === Office.AsyncResultStatus.Succeeded) {
-                  console.log("[AB Book IQ] Updated required attendees");
-                } else {
-                  console.log("[AB Book IQ] Failed to update required attendees:", setResult.error?.message);
-                }
-                res();
-              });
             } else {
               res();
             }
           });
         });
+      }
 
-        // Old Outlook: Clear basic location
+      // Step 3 (all versions): filter rooms out of required attendees
+      await new Promise<void>((res) => {
+        item.requiredAttendees.getAsync((result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            const currentAttendees = result.value || [];
+            console.log("[AB Book IQ] Current required attendees:", currentAttendees.map((a: any) => a.emailAddress));
+
+            const filtered = currentAttendees
+              .filter((a: any) => {
+                const email = a.emailAddress.toLowerCase();
+                if (roomEmailsLower.has(email)) return false;
+                if (email === organizerEmail) return false;
+                return true;
+              })
+              .map((a: any) => ({ displayName: a.displayName, emailAddress: a.emailAddress }));
+
+            console.log("[AB Book IQ] After filtering, keeping:", filtered.length, "attendees");
+
+            item.requiredAttendees.setAsync(filtered, (setResult: any) => {
+              if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+                console.log("[AB Book IQ] Updated required attendees");
+              } else {
+                console.log("[AB Book IQ] Failed to update required attendees:", setResult.error?.message);
+              }
+              res();
+            });
+          } else {
+            res();
+          }
+        });
+      });
+
+      // Step 4 (old Outlook only): clear the basic location text field
+      if (!hasEnhancedLocation) {
         await setLocation("");
         console.log("[AB Book IQ] Cleared location");
       }
