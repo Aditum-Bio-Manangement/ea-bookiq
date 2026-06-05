@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, setLocation, setRoomAsLocation, isRoomAlreadyAdded, isInOutlookContext, removeRoomAttendee, removeAllRooms } from "../office/appointment";
+import { addRoomAttendee, addRoomLocation, removeRoomLocation, isInOutlookContext, removeRoomAttendee, isClassicOutlookDesktop } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -36,29 +36,27 @@ export async function bookRoom(
       };
     }
 
-    // Handle attendee addition (for "both" or "attendee" modes)
-    if (mode === "both" || mode === "attendee") {
-      // First, remove ALL existing rooms from the meeting to ensure only one room is booked
-      if (allRoomEmails && allRoomEmails.length > 0) {
-        console.log("[AB Book IQ] Removing all existing rooms before booking new one");
-        await removeAllRooms(allRoomEmails);
-      }
+    // We allow multiple rooms to be added (as attendees and/or locations), so
+    // we never remove existing rooms here. Each mode adds exactly what it says.
+    const classic = isClassicOutlookDesktop();
 
-      // Add the room as a required attendee (attendee line only, all versions)
-      console.log("[AB Book IQ] Adding room as attendee:", room.displayName);
+    if (mode === "both") {
+      // Book = add as attendee AND as the room-resource location.
       await addRoomAttendee(room.displayName, room.emailAddress);
-
-      // For "both" (the Book button) also set the location text. We use plain
-      // text (not enhancedLocation) so the result is identical on every Outlook
-      // version and never creates a duplicate attendee.
-      if (mode === "both") {
-        await setLocation(room.displayName);
-        console.log("[AB Book IQ] Set location to:", room.displayName);
+      await addRoomLocation(room.displayName, room.emailAddress);
+      console.log("[AB Book IQ] Booked room as attendee + location:", room.displayName);
+    } else if (mode === "attendee") {
+      // Attendee only. On classic desktop, adding an attendee auto-fills the
+      // location too, so we undo that to keep it attendee-only.
+      await addRoomAttendee(room.displayName, room.emailAddress);
+      if (classic) {
+        await removeRoomLocation(room.displayName, room.emailAddress);
       }
+      console.log("[AB Book IQ] Added room as attendee only:", room.displayName);
     } else if (mode === "location") {
-      // Only set location (no attendee changes).
-      await setRoomAsLocation(room.displayName, room.emailAddress);
-      console.log("[AB Book IQ] Set location only to:", room.displayName);
+      // Location only (room resource). addRoomLocation never adds an attendee.
+      await addRoomLocation(room.displayName, room.emailAddress);
+      console.log("[AB Book IQ] Added room as location only:", room.displayName);
     }
 
     // Build notification message
@@ -108,15 +106,10 @@ export async function unbookRoom(room: Room, allRoomEmails?: string[]): Promise<
       };
     }
 
-    // Remove the specific room (or all rooms if allRoomEmails provided)
-    if (allRoomEmails && allRoomEmails.length > 0) {
-      // Remove all rooms to ensure clean state
-      await removeAllRooms(allRoomEmails);
-    } else {
-      // Remove just this specific room
-      await removeRoomAttendee(room.emailAddress);
-      await setLocation("");
-    }
+    // Remove ONLY this room (since multiple rooms may be booked): take it out
+    // of the attendees and out of the location.
+    await removeRoomAttendee(room.emailAddress);
+    await removeRoomLocation(room.displayName, room.emailAddress);
 
     console.log("[AB Book IQ] Room unbooked:", room.displayName);
     showNotification(`${room.displayName} removed from meeting.`);

@@ -12,7 +12,7 @@ import { OfficeSelector, OfficeToggle } from "./OfficeSelector";
 
 import { initializeMsal, signIn, isSignedIn, getAccount } from "@/lib/outlook-addin/auth/msal";
 import { initializeOffice, isInOutlook, onAppointmentChanged } from "@/lib/outlook-addin/office/eventHandlers";
-import { getMeetingWindow, getAddedRoomEmails, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
+import { getMeetingWindow, getRoomPresence, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
 import { resolveOffice, setCachedOfficePreference, getAllOffices, type OfficeResolutionResult } from "@/lib/outlook-addin/domain/officeResolver";
 import { getRoomsForOffice, type Room } from "@/lib/outlook-addin/graph/places";
 import { checkRoomAvailability, type RoomAvailability } from "@/lib/outlook-addin/graph/schedule";
@@ -143,17 +143,18 @@ export function TaskPane() {
       // Get rooms for the office
       const officeRooms = await getRoomsForOffice(office);
 
-      // Check which rooms are already added to the meeting (in Outlook context)
-      // This ensures booked rooms are properly detected even after refresh
+      // Check which rooms are fully booked (present as BOTH an attendee AND a
+      // location). Rooms added as only an attendee or only a location are NOT
+      // considered "Booked" — this lets users add multiple rooms freely.
       const roomEmails = officeRooms.map(r => r.emailAddress);
       const roomNames = officeRooms.map(r => r.displayName);
       const newBookedIds = new Set<string>();
 
       if (isInOutlook()) {
-        const addedRooms = await getAddedRoomEmails(roomEmails, roomNames);
-        // Update bookedRoomIds based on actual meeting attendees/location
+        const { attendees, locations } = await getRoomPresence(roomEmails, roomNames);
         for (const room of officeRooms) {
-          if (addedRooms.has(room.emailAddress.toLowerCase())) {
+          const email = room.emailAddress.toLowerCase();
+          if (attendees.has(email) && locations.has(email)) {
             newBookedIds.add(room.id);
           }
         }
@@ -218,10 +219,14 @@ export function TaskPane() {
       const result = await bookRoom(room, allRoomEmails, mode);
 
       if (result.success) {
-        // Flip the card to "Booked" for every mode (Book, Add as Attendee,
-        // and Set as Location). Clear all other booked rooms and mark only
-        // the selected one as booked.
-        setBookedRoomIds(new Set([room.id]));
+        // Only flip the card to "Booked" when the room was added as BOTH an
+        // attendee AND a location (the "both" mode / Book button). Adding only
+        // as an attendee or only as a location does not mark it Booked, so the
+        // user can keep adding multiple rooms. We add (not replace) so multiple
+        // rooms can be Booked at once.
+        if (mode === "both") {
+          setBookedRoomIds((prev) => new Set(prev).add(room.id));
+        }
       } else {
         setError(result.message);
       }
@@ -244,8 +249,12 @@ export function TaskPane() {
       const result = await unbookRoom(room, allRoomEmails);
 
       if (result.success) {
-        // Clear all booked room IDs (since we removed all rooms)
-        setBookedRoomIds(new Set());
+        // Remove only this room from the booked set (other rooms stay booked).
+        setBookedRoomIds((prev) => {
+          const next = new Set(prev);
+          next.delete(room.id);
+          return next;
+        });
       } else {
         setError(result.message);
       }

@@ -36,6 +36,35 @@ export function isInOutlookContext(): boolean {
 }
 
 /**
+ * Detect classic Outlook desktop (Windows "Outlook" / "Mac").
+ *
+ * This matters because classic desktop CROSS-POPULATES the attendee and
+ * location fields: adding a room as a required attendee also sets it as the
+ * location, and adding it via enhancedLocation also adds it as an attendee.
+ * New Outlook and Outlook on the web keep the two fields independent.
+ *
+ * We use this to give identical end-results on every client.
+ */
+export function isClassicOutlookDesktop(): boolean {
+  try {
+    const host = (Office.context?.mailbox?.diagnostics as any)?.hostName;
+    // Classic Windows desktop reports "Outlook"; classic Mac reports "Mac".
+    // New Outlook for Windows reports "newOutlookWindows"; web reports
+    // "OutlookWebApp" — both keep attendee/location independent.
+    return host === "Outlook" || host === "Mac";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if enhancedLocation API is available (Mailbox requirement set 1.8+)
+ */
+function hasEnhancedLocation(item: Office.AppointmentCompose): boolean {
+  return typeof (item as any).enhancedLocation?.addAsync === "function";
+}
+
+/**
  * Get the current meeting time window from the appointment being composed
  */
 export async function getMeetingWindow(): Promise<MeetingWindow> {
@@ -169,29 +198,29 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
- * Add a room ONLY as a required attendee (no location changes).
+ * Add a room as a required attendee (idempotent — won't add a duplicate).
  *
- * This uses requiredAttendees.addAsync, which behaves consistently on every
- * Outlook version: it adds the room to the attendee/Required line and does NOT
- * touch the location field.
- *
- * IMPORTANT: We intentionally do NOT use enhancedLocation.addAsync here. On
- * classic Outlook desktop that API also adds the room as a resource (which
- * shows up as a second attendee), causing duplicate entries. On new Outlook it
- * only sets the location. To get identical behavior everywhere we avoid it and
- * set the location separately as text (see setRoomAsLocation / bookRoom).
+ * Uses requiredAttendees.addAsync. On classic Outlook desktop this ALSO
+ * auto-fills the location; callers that want attendee-only must undo that with
+ * removeRoomLocation (see bookRoom).
  */
 export async function addRoomAttendee(
   displayName: string,
   emailAddress: string
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const item = getMailboxItem();
-    if (!item) {
-      reject(new Error("No appointment item available"));
-      return;
-    }
+  const item = getMailboxItem();
+  if (!item) {
+    throw new Error("No appointment item available");
+  }
 
+  // Idempotency guard: skip if the room is already an attendee/resource.
+  const alreadyAdded = await isRoomAlreadyAdded(emailAddress);
+  if (alreadyAdded) {
+    console.log("[AB Book IQ] Room already an attendee, skipping add:", displayName);
+    return;
+  }
+
+  return new Promise((resolve, reject) => {
     item.requiredAttendees.addAsync(
       [{ displayName, emailAddress }],
       (result: any) => {
@@ -229,20 +258,94 @@ export async function setLocation(location: string): Promise<void> {
 }
 
 /**
- * Set a room as the meeting location WITHOUT adding it as an attendee.
+ * Add a room as the meeting LOCATION (the actual room resource, not plain text).
  *
- * Uses the plain text location field on every Outlook version. We deliberately
- * avoid enhancedLocation.addAsync because on classic Outlook desktop it also
- * adds the room as a resource (a second attendee), which would break the
- * "location only" behavior. Setting the location text gives identical,
- * attendee-free results on all clients.
+ * - New Outlook / web: uses enhancedLocation.addAsync with type Room so the
+ *   room resolves to a real resource (avoids the plain-text "Unknown" label)
+ *   and supports multiple location entries.
+ * - Classic desktop: enhancedLocation also adds the room as an attendee, which
+ *   would break "location only". So on classic we set the plain text location
+ *   instead. (Classic resolves/displays room text natively without "Unknown".)
+ *
+ * This function never adds the room as an attendee.
  */
-export async function setRoomAsLocation(
+export async function addRoomLocation(
   displayName: string,
-  _emailAddress: string
+  emailAddress: string
 ): Promise<void> {
-  await setLocation(displayName);
-  console.log("[AB Book IQ] Set room as location (text):", displayName);
+  const item = getMailboxItem();
+  if (!item) {
+    throw new Error("No appointment item available");
+  }
+
+  const classic = isClassicOutlookDesktop();
+
+  if (!classic && hasEnhancedLocation(item)) {
+    await new Promise<void>((resolve) => {
+      const locationIdentifier = {
+        id: emailAddress,
+        type: Office.MailboxEnums.LocationType.Room,
+      };
+      (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          console.log("[AB Book IQ] Added room as location resource:", displayName);
+        } else {
+          console.log("[AB Book IQ] enhancedLocation.addAsync failed:", result.error?.message);
+        }
+        resolve();
+      });
+    });
+  } else {
+    // Classic desktop (or no enhancedLocation): set plain text location.
+    await setLocation(displayName);
+    console.log("[AB Book IQ] Set room as location (text):", displayName);
+  }
+}
+
+/**
+ * Remove a single room from the LOCATION only (keeps it as an attendee).
+ *
+ * Removes the matching enhancedLocation entry (by room email) and clears the
+ * plain text location if it matches the room name. Used to undo classic
+ * Outlook's auto-population of the location when adding an attendee, and when
+ * unbooking a room.
+ */
+export async function removeRoomLocation(
+  displayName: string,
+  emailAddress: string
+): Promise<void> {
+  const item = getMailboxItem();
+  if (!item) {
+    throw new Error("No appointment item available");
+  }
+
+  const normalizedEmail = emailAddress.toLowerCase();
+
+  // Remove the matching enhancedLocation entry (specific room only).
+  if (hasEnhancedLocation(item) && typeof (item as any).enhancedLocation?.getAsync === "function") {
+    await new Promise<void>((resolve) => {
+      (item as any).enhancedLocation.getAsync((result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded && result.value?.length > 0) {
+          const toRemove = result.value
+            .filter((loc: any) => (loc.locationIdentifier?.id?.toLowerCase() || "") === normalizedEmail)
+            .map((loc: any) => loc.locationIdentifier);
+
+          if (toRemove.length > 0) {
+            (item as any).enhancedLocation.removeAsync(toRemove, () => resolve());
+            return;
+          }
+        }
+        resolve();
+      });
+    });
+  }
+
+  // Clear the plain text location if it matches this room.
+  const currentLocation = await getLocation();
+  if (currentLocation && currentLocation.toLowerCase().includes(displayName.toLowerCase())) {
+    await setLocation("");
+    console.log("[AB Book IQ] Cleared text location for room:", displayName);
+  }
 }
 
 /**
@@ -330,6 +433,68 @@ export async function getAddedRoomEmails(allRoomEmails: string[], allRoomNames?:
   }
 
   return addedRooms;
+}
+
+/**
+ * Determine, for the given rooms, which are present as ATTENDEES and which are
+ * present as LOCATIONS. A room is considered "fully booked" only when it is in
+ * BOTH sets.
+ *
+ * Location detection checks enhancedLocation entries (by room email) and the
+ * plain text location (by room name), so it works on every Outlook version.
+ */
+export async function getRoomPresence(
+  allRoomEmails: string[],
+  allRoomNames: string[]
+): Promise<{ attendees: Set<string>; locations: Set<string> }> {
+  const attendees = new Set<string>();
+  const locations = new Set<string>();
+
+  const item = getMailboxItem();
+  if (!item) {
+    return { attendees, locations };
+  }
+
+  // Attendees (required + optional + resources)
+  const currentAttendees = await getCurrentAttendees();
+  const attendeeEmails = new Set(currentAttendees.map((a) => a.emailAddress.toLowerCase()));
+  for (const email of allRoomEmails) {
+    if (attendeeEmails.has(email.toLowerCase())) {
+      attendees.add(email.toLowerCase());
+    }
+  }
+
+  // Locations via enhancedLocation (match by room email)
+  if (typeof (item as any).enhancedLocation?.getAsync === "function") {
+    await new Promise<void>((resolve) => {
+      (item as any).enhancedLocation.getAsync((result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded && result.value?.length > 0) {
+          const locIds = result.value.map((l: any) => (l.locationIdentifier?.id || "").toLowerCase());
+          for (const email of allRoomEmails) {
+            if (locIds.includes(email.toLowerCase())) {
+              locations.add(email.toLowerCase());
+            }
+          }
+        }
+        resolve();
+      });
+    });
+  }
+
+  // Locations via plain text location (match by room name)
+  const locationText = await getLocation();
+  if (locationText) {
+    const lowerLocation = locationText.toLowerCase();
+    for (let i = 0; i < allRoomNames.length; i++) {
+      const name = allRoomNames[i];
+      const email = allRoomEmails[i];
+      if (name && lowerLocation.includes(name.toLowerCase())) {
+        locations.add(email.toLowerCase());
+      }
+    }
+  }
+
+  return { attendees, locations };
 }
 
 /**
