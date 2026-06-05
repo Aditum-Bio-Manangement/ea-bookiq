@@ -169,82 +169,41 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
- * Add a room to the meeting
- * Behaves the same on all Outlook versions: room is added BOTH as a
- * required attendee AND as the meeting location.
+ * Add a room ONLY as a required attendee (no location changes).
  *
- * Modern Outlook: enhancedLocation.addAsync sets the location, but does NOT
- *   add the room as a required attendee, so we explicitly add it to
- *   requiredAttendees as well.
- * Old Outlook: requiredAttendees.addAsync auto-routes the room to resources,
- *   and we set the basic location field.
+ * This uses requiredAttendees.addAsync, which behaves consistently on every
+ * Outlook version: it adds the room to the attendee/Required line and does NOT
+ * touch the location field.
+ *
+ * IMPORTANT: We intentionally do NOT use enhancedLocation.addAsync here. On
+ * classic Outlook desktop that API also adds the room as a resource (which
+ * shows up as a second attendee), causing duplicate entries. On new Outlook it
+ * only sets the location. To get identical behavior everywhere we avoid it and
+ * set the location separately as text (see setRoomAsLocation / bookRoom).
  */
 export async function addRoomAttendee(
   displayName: string,
   emailAddress: string
 ): Promise<void> {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const item = getMailboxItem();
     if (!item) {
       reject(new Error("No appointment item available"));
       return;
     }
 
-    try {
-      // Check if enhancedLocation API is available (modern Outlook)
-      const hasEnhancedLocation = typeof (item as any).enhancedLocation?.addAsync === 'function';
-
-      console.log("[AB Book IQ] addRoomAttendee - hasEnhancedLocation:", hasEnhancedLocation);
-
-      // Step 1: Add the room as a required attendee (works on all versions).
-      // This is what makes the room a real meeting participant. On old Outlook
-      // this also auto-routes the room into the resources/room collection.
-      await new Promise<void>((res, rej) => {
-        item.requiredAttendees.addAsync(
-          [{ displayName, emailAddress }],
-          (result: any) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-              console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
-              res();
-            } else {
-              console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
-              rej(new Error(result.error?.message || "Failed to add attendee"));
-            }
-          }
-        );
-      });
-
-      // Step 2: Set the location.
-      if (hasEnhancedLocation) {
-        // Modern Outlook: use enhancedLocation so the room shows as a proper
-        // resolved room location (not just plain text). This does NOT add it
-        // as an attendee, which is why Step 1 above is required.
-        await new Promise<void>((res) => {
-          const locationIdentifier = {
-            id: emailAddress,
-            type: Office.MailboxEnums.LocationType.Room
-          };
-          (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-              console.log("[AB Book IQ] Added room via enhancedLocation:", displayName);
-            } else {
-              console.log("[AB Book IQ] enhancedLocation.addAsync failed (non-critical):", result.error?.message);
-            }
-            res();
-          });
-        });
-      } else {
-        // Old Outlook: set the basic location text field.
-        await setLocation(displayName);
-        console.log("[AB Book IQ] Set basic location:", displayName);
+    item.requiredAttendees.addAsync(
+      [{ displayName, emailAddress }],
+      (result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+          resolve();
+        } else {
+          console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
+          reject(new Error(result.error?.message || "Failed to add attendee"));
+        }
       }
-
-      console.log("[AB Book IQ] Room booking complete:", displayName);
-      resolve();
-    } catch (err) {
-      console.error("[AB Book IQ] addRoomAttendee error:", err);
-      reject(err);
-    }
+    );
   });
 }
 
@@ -271,50 +230,19 @@ export async function setLocation(location: string): Promise<void> {
 
 /**
  * Set a room as the meeting location WITHOUT adding it as an attendee.
- * Modern Outlook: use enhancedLocation so the room resolves to a proper room
- *   location (avoids the "Unknown" plain-text label).
- * Old Outlook: fall back to setting the basic location text field.
+ *
+ * Uses the plain text location field on every Outlook version. We deliberately
+ * avoid enhancedLocation.addAsync because on classic Outlook desktop it also
+ * adds the room as a resource (a second attendee), which would break the
+ * "location only" behavior. Setting the location text gives identical,
+ * attendee-free results on all clients.
  */
 export async function setRoomAsLocation(
   displayName: string,
-  emailAddress: string
+  _emailAddress: string
 ): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    const item = getMailboxItem();
-    if (!item) {
-      reject(new Error("No appointment item available"));
-      return;
-    }
-
-    try {
-      const hasEnhancedLocation = typeof (item as any).enhancedLocation?.addAsync === 'function';
-
-      if (hasEnhancedLocation) {
-        await new Promise<void>((res) => {
-          const locationIdentifier = {
-            id: emailAddress,
-            type: Office.MailboxEnums.LocationType.Room
-          };
-          (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
-            if (result.status === Office.AsyncResultStatus.Succeeded) {
-              console.log("[AB Book IQ] Set room as location via enhancedLocation:", displayName);
-            } else {
-              console.log("[AB Book IQ] enhancedLocation.addAsync failed, falling back to text location:", result.error?.message);
-            }
-            res();
-          });
-        });
-      } else {
-        await setLocation(displayName);
-        console.log("[AB Book IQ] Set basic location:", displayName);
-      }
-
-      resolve();
-    } catch (err) {
-      console.error("[AB Book IQ] setRoomAsLocation error:", err);
-      reject(err);
-    }
-  });
+  await setLocation(displayName);
+  console.log("[AB Book IQ] Set room as location (text):", displayName);
 }
 
 /**
@@ -613,11 +541,11 @@ export async function removeAllRooms(allRoomEmails: string[]): Promise<void> {
         });
       });
 
-      // Step 4 (old Outlook only): clear the basic location text field
-      if (!hasEnhancedLocation) {
-        await setLocation("");
-        console.log("[AB Book IQ] Cleared location");
-      }
+      // Step 4 (all versions): clear the basic location text field.
+      // We always set the location as text now, so it must always be cleared
+      // here regardless of whether enhancedLocation is available.
+      await setLocation("");
+      console.log("[AB Book IQ] Cleared location");
 
       resolve();
     } catch (err) {

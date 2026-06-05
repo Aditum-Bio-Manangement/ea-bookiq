@@ -218,11 +218,10 @@ export function TaskPane() {
       const result = await bookRoom(room, allRoomEmails, mode);
 
       if (result.success) {
-        // Only update booked room IDs if we added the room as an attendee
-        if (mode === "both" || mode === "attendee") {
-          // Clear all other booked rooms and set only the new one
-          setBookedRoomIds(new Set([room.id]));
-        }
+        // Flip the card to "Booked" for every mode (Book, Add as Attendee,
+        // and Set as Location). Clear all other booked rooms and mark only
+        // the selected one as booked.
+        setBookedRoomIds(new Set([room.id]));
       } else {
         setError(result.message);
       }

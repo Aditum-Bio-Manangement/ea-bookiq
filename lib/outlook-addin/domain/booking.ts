@@ -44,12 +44,19 @@ export async function bookRoom(
         await removeAllRooms(allRoomEmails);
       }
 
-      // Now add the new room (addRoomAttendee handles enhancedLocation, requiredAttendees, resources, and location)
-      console.log("[AB Book IQ] Adding room:", room.displayName);
+      // Add the room as a required attendee (attendee line only, all versions)
+      console.log("[AB Book IQ] Adding room as attendee:", room.displayName);
       await addRoomAttendee(room.displayName, room.emailAddress);
+
+      // For "both" (the Book button) also set the location text. We use plain
+      // text (not enhancedLocation) so the result is identical on every Outlook
+      // version and never creates a duplicate attendee.
+      if (mode === "both") {
+        await setLocation(room.displayName);
+        console.log("[AB Book IQ] Set location to:", room.displayName);
+      }
     } else if (mode === "location") {
-      // Only set location (no attendee changes). Uses enhancedLocation on
-      // modern Outlook so the room resolves properly instead of "Unknown".
+      // Only set location (no attendee changes).
       await setRoomAsLocation(room.displayName, room.emailAddress);
       console.log("[AB Book IQ] Set location only to:", room.displayName);
     }
