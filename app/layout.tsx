@@ -7,7 +7,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'AB Book IQ - Aditum Bio',
+  title: 'AB Room IQ - Aditum Bio',
   description: 'Intelligent conference room booking for Aditum Bio employees. An Outlook add-in by Aditum Bio.',
   generator: 'Developed by Caleb Klobe - Aditum Bio',
   icons: {
