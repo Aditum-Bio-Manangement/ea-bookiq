@@ -11,21 +11,8 @@ export const metadata: Metadata = {
   description: 'Intelligent conference room booking for Aditum Bio employees. An Outlook add-in by Aditum Bio.',
   generator: 'Developed by Caleb Klobe - Aditum Bio',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/images/favicon.ico',
+    apple: '/icons/icon-64.png',
   },
 }
 
