@@ -12,7 +12,7 @@ import { OfficeSelector, OfficeToggle } from "./OfficeSelector";
 
 import { initializeMsal, signIn, isSignedIn, getAccount } from "@/lib/outlook-addin/auth/msal";
 import { initializeOffice, isInOutlook, onAppointmentChanged } from "@/lib/outlook-addin/office/eventHandlers";
-import { getMeetingWindow, getRoomPresence, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
+import { getMeetingWindow, getRoomPresence, getPersistedBookedRooms, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
 import { resolveOffice, setCachedOfficePreference, getAllOffices, type OfficeResolutionResult } from "@/lib/outlook-addin/domain/officeResolver";
 import { getRoomsForOffice, type Room } from "@/lib/outlook-addin/graph/places";
 import { checkRoomAvailability, type RoomAvailability } from "@/lib/outlook-addin/graph/schedule";
@@ -143,18 +143,25 @@ export function TaskPane() {
       // Get rooms for the office
       const officeRooms = await getRoomsForOffice(office);
 
-      // Check which rooms are fully booked (present as BOTH an attendee AND a
-      // location). Rooms added as only an attendee or only a location are NOT
-      // considered "Booked" — this lets users add multiple rooms freely.
+      // Determine which rooms are "Booked". A room counts as Booked when it is
+      // detected as BOTH an attendee AND a location, OR when it was persisted as
+      // Booked (via the Book button) and is still present in the meeting. The
+      // persisted fallback is needed for classic Outlook desktop, whose attendee
+      // reads don't reliably return freshly-added rooms — without it the Booked
+      // state would revert to "Book" on refresh. New Outlook / OWA already
+      // detect presence reliably, so their behavior is unchanged.
       const roomEmails = officeRooms.map(r => r.emailAddress);
       const roomNames = officeRooms.map(r => r.displayName);
       const newBookedIds = new Set<string>();
 
       if (isInOutlook()) {
         const { attendees, locations } = await getRoomPresence(roomEmails, roomNames);
+        const persistedBooked = await getPersistedBookedRooms();
         for (const room of officeRooms) {
           const email = room.emailAddress.toLowerCase();
-          if (attendees.has(email) && locations.has(email)) {
+          const detectedBoth = attendees.has(email) && locations.has(email);
+          const stillPresent = attendees.has(email) || locations.has(email);
+          if (detectedBoth || (persistedBooked.has(email) && stillPresent)) {
             newBookedIds.add(room.id);
           }
         }
@@ -390,7 +397,7 @@ export function TaskPane() {
       <div className="p-4 border-b space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-foreground">AB Room IQ</h2>
+            <h2 className="font-semibold text-foreground">AB Book IQ</h2>
             {getAccount() && (
               <p className="text-xs text-muted-foreground">
                 {getAccount()?.username}

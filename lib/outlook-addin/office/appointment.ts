@@ -505,6 +505,69 @@ export async function getRoomPresence(
 }
 
 /**
+ * Per-item persistence of "fully booked" rooms (added via the Book button as
+ * BOTH attendee + location). Stored in the appointment's custom properties so
+ * the Booked state survives refresh / reopening the add-in.
+ *
+ * This is required for classic Outlook desktop, whose Office.js attendee reads
+ * don't reliably return a freshly-added (unsaved) room resource — so we can't
+ * rely solely on getRoomPresence to redetect Booked rooms there. New Outlook /
+ * OWA detect presence reliably, so for them this is just a redundant safety net
+ * and their behavior is unchanged.
+ */
+const BOOKED_ROOMS_PROP_KEY = "abBookedRoomEmails";
+
+export async function getPersistedBookedRooms(): Promise<Set<string>> {
+  return new Promise((resolve) => {
+    const item = getMailboxItem();
+    if (!item || typeof (item as any).loadCustomPropertiesAsync !== "function") {
+      resolve(new Set());
+      return;
+    }
+    (item as any).loadCustomPropertiesAsync((result: any) => {
+      if (result.status === Office.AsyncResultStatus.Succeeded && result.value) {
+        const raw = result.value.get(BOOKED_ROOMS_PROP_KEY);
+        const emails = raw
+          ? String(raw).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+          : [];
+        resolve(new Set(emails));
+      } else {
+        resolve(new Set());
+      }
+    });
+  });
+}
+
+export async function markRoomBooked(emailAddress: string, booked: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const item = getMailboxItem();
+    if (!item || typeof (item as any).loadCustomPropertiesAsync !== "function") {
+      resolve();
+      return;
+    }
+    (item as any).loadCustomPropertiesAsync((result: any) => {
+      if (result.status !== Office.AsyncResultStatus.Succeeded || !result.value) {
+        resolve();
+        return;
+      }
+      const props = result.value;
+      const raw = props.get(BOOKED_ROOMS_PROP_KEY);
+      const set = new Set(
+        raw ? String(raw).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean) : []
+      );
+      const normalized = emailAddress.toLowerCase();
+      if (booked) {
+        set.add(normalized);
+      } else {
+        set.delete(normalized);
+      }
+      props.set(BOOKED_ROOMS_PROP_KEY, Array.from(set).join(","));
+      props.saveAsync(() => resolve());
+    });
+  });
+}
+
+/**
  * Remove a room attendee by setting attendees list without that room
  * Handles both requiredAttendees and resources collections
  */

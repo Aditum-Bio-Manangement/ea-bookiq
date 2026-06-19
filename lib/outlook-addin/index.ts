@@ -32,6 +32,9 @@ export {
   addRoomLocation,
   removeRoomLocation,
   getRoomPresence,
+  getPersistedBookedRooms,
+  markRoomBooked,
+  clearLocation,
   isClassicOutlookDesktop,
   getLocation,
   isRoomAlreadyAdded,
@@ -57,7 +60,7 @@ export {
   getAllOffices,
 } from "./domain/officeResolver";
 export type { OfficeResolutionResult } from "./domain/officeResolver";
-export { bookRoom } from "./domain/booking";
+export { bookRoom, unbookRoom } from "./domain/booking";
 export type { BookingResult } from "./domain/booking";
 export { rankRooms, groupRoomsByAvailability, getRoomFeatures } from "./domain/roomRanker";
 export type { RankingOptions } from "./domain/roomRanker";

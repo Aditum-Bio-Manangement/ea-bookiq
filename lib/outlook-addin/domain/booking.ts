@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, addRoomLocation, removeRoomLocation, isInOutlookContext, removeRoomAttendee } from "../office/appointment";
+import { addRoomAttendee, addRoomLocation, removeRoomLocation, clearLocation, isInOutlookContext, removeRoomAttendee, isClassicOutlookDesktop, markRoomBooked } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -42,19 +42,29 @@ export async function bookRoom(
       // Book = add as attendee AND as the room-resource location.
       await addRoomAttendee(room.displayName, room.emailAddress);
       await addRoomLocation(room.displayName, room.emailAddress);
+      // Persist the Booked state so it survives refresh/reopen (required for
+      // classic Outlook where attendee reads are unreliable).
+      await markRoomBooked(room.emailAddress, true);
       console.log("[AB Book IQ] Booked room as attendee + location:", room.displayName);
     } else if (mode === "attendee") {
-      // Attendee only. We intentionally do NOT remove the location afterwards.
-      // On classic Outlook desktop the room is a resolved resource whose
-      // attendee entry and location/enhancedLocation entry are linked, so
-      // removing the location also strips the attendee (the room then ends up
-      // added nowhere). New Outlook / OWA already keep the fields independent,
-      // so adding only the attendee is correct everywhere.
+      // Attendee only.
       await addRoomAttendee(room.displayName, room.emailAddress);
+      // On classic Outlook desktop, adding a required attendee auto-fills the
+      // location text with the room name. Clear ONLY that plain-text location
+      // so the result is attendee-only (like new Outlook / OWA). We must NOT
+      // use enhancedLocation.removeAsync here — on classic that is linked to
+      // the resource and would strip the attendee too.
+      if (isClassicOutlookDesktop()) {
+        await clearLocation(room.displayName);
+      }
+      // Attendee-only is not "Booked", so make sure it isn't persisted as such.
+      await markRoomBooked(room.emailAddress, false);
       console.log("[AB Book IQ] Added room as attendee only:", room.displayName);
     } else if (mode === "location") {
       // Location only (room resource). addRoomLocation never adds an attendee.
       await addRoomLocation(room.displayName, room.emailAddress);
+      // Location-only is not "Booked".
+      await markRoomBooked(room.emailAddress, false);
       console.log("[AB Book IQ] Added room as location only:", room.displayName);
     }
 
@@ -109,6 +119,8 @@ export async function unbookRoom(room: Room, allRoomEmails?: string[]): Promise<
     // of the attendees and out of the location.
     await removeRoomAttendee(room.emailAddress);
     await removeRoomLocation(room.displayName, room.emailAddress);
+    // Clear the persisted Booked marker for this room.
+    await markRoomBooked(room.emailAddress, false);
 
     console.log("[AB Book IQ] Room unbooked:", room.displayName);
     showNotification(`${room.displayName} removed from meeting.`);
