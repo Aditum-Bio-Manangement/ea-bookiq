@@ -1,5 +1,5 @@
 import type { Room } from "../graph/places";
-import { addRoomAttendee, addRoomLocation, removeRoomLocation, isInOutlookContext, removeRoomAttendee, isClassicOutlookDesktop } from "../office/appointment";
+import { addRoomAttendee, addRoomLocation, removeRoomLocation, isInOutlookContext, removeRoomAttendee } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
 export type BookingMode = "both" | "attendee" | "location";
@@ -38,20 +38,19 @@ export async function bookRoom(
 
     // We allow multiple rooms to be added (as attendees and/or locations), so
     // we never remove existing rooms here. Each mode adds exactly what it says.
-    const classic = isClassicOutlookDesktop();
-
     if (mode === "both") {
       // Book = add as attendee AND as the room-resource location.
       await addRoomAttendee(room.displayName, room.emailAddress);
       await addRoomLocation(room.displayName, room.emailAddress);
       console.log("[AB Book IQ] Booked room as attendee + location:", room.displayName);
     } else if (mode === "attendee") {
-      // Attendee only. On classic desktop, adding an attendee auto-fills the
-      // location too, so we undo that to keep it attendee-only.
+      // Attendee only. We intentionally do NOT remove the location afterwards.
+      // On classic Outlook desktop the room is a resolved resource whose
+      // attendee entry and location/enhancedLocation entry are linked, so
+      // removing the location also strips the attendee (the room then ends up
+      // added nowhere). New Outlook / OWA already keep the fields independent,
+      // so adding only the attendee is correct everywhere.
       await addRoomAttendee(room.displayName, room.emailAddress);
-      if (classic) {
-        await removeRoomLocation(room.displayName, room.emailAddress);
-      }
       console.log("[AB Book IQ] Added room as attendee only:", room.displayName);
     } else if (mode === "location") {
       // Location only (room resource). addRoomLocation never adds an attendee.

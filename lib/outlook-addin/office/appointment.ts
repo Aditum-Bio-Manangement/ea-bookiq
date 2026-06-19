@@ -455,12 +455,19 @@ export async function getRoomPresence(
     return { attendees, locations };
   }
 
-  // Attendees (required + optional + resources)
+  // Attendees (required + optional + resources). Match by email OR display
+  // name: on classic Outlook desktop a room is a resolved resource whose
+  // attendee email returned by the API doesn't always match the Graph room
+  // email, so we also match on the room's display name as a reliable fallback.
+  // (New Outlook / OWA already match by email, so this only adds matches.)
   const currentAttendees = await getCurrentAttendees();
   const attendeeEmails = new Set(currentAttendees.map((a) => a.emailAddress.toLowerCase()));
-  for (const email of allRoomEmails) {
-    if (attendeeEmails.has(email.toLowerCase())) {
-      attendees.add(email.toLowerCase());
+  const attendeeNames = new Set(currentAttendees.map((a) => (a.displayName || "").toLowerCase()));
+  for (let i = 0; i < allRoomEmails.length; i++) {
+    const email = allRoomEmails[i].toLowerCase();
+    const name = (allRoomNames[i] || "").toLowerCase();
+    if (attendeeEmails.has(email) || (name && attendeeNames.has(name))) {
+      attendees.add(email);
     }
   }
 
