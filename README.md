@@ -1,8 +1,8 @@
-# AB Book IQ - Outlook Add-in for Conference Room Booking
+# AB Room IQ - Outlook Add-in for Conference Room Booking
 
 **Intelligent conference room booking for Aditum Bio employees.**
 
-AB Book IQ is a Microsoft Outlook add-in that streamlines the process of booking conference rooms. It automatically identifies the user's office location based on their security group membership (EA-Cambridge or EA-Oakland) and shows only relevant rooms with real-time availability.
+AB Room IQ is a Microsoft Outlook add-in that streamlines the process of booking conference rooms. It automatically identifies the user's office location based on their security group membership (EA-Cambridge or EA-Oakland) and shows only relevant rooms with real-time availability.
 
 ## Features
 
@@ -101,7 +101,7 @@ AB Book IQ is a Microsoft Outlook add-in that streamlines the process of booking
 
 ```bash
 git clone <repository-url>
-cd ea-bookiq
+cd ea-roomiq
 pnpm install
 ```
 
