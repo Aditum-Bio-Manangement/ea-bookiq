@@ -136,11 +136,23 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 
     console.log("[AB Book IQ] hasResources API:", hasResources);
 
+    // Safety guard: on new Outlook, resources.getAsync sometimes never invokes
+    // its callback, which would leave pendingCount > 0 and make this promise
+    // hang forever (blocking addRoomAttendee / bookRoom). Always settle: resolve
+    // with whatever we've collected once all callbacks fire OR after a timeout.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      console.log("[AB Book IQ] Attendees fetched:", attendees.length, "total");
+      resolve(attendees);
+    };
+    setTimeout(settle, 2500);
+
     const checkComplete = () => {
       pendingCount--;
       if (pendingCount === 0) {
-        console.log("[AB Book IQ] All attendees fetched:", attendees.length, "total");
-        resolve(attendees);
+        settle();
       }
     };
 
