@@ -517,53 +517,99 @@ export async function getRoomPresence(
  */
 const BOOKED_ROOMS_PROP_KEY = "abBookedRoomEmails";
 
+// Custom-property calls can occasionally hang or throw in some Outlook clients
+// (notably on unsaved compose items in new Outlook). This safety timeout
+// guarantees the persistence helpers ALWAYS settle so they can never block or
+// break the booking flow.
+const CUSTOM_PROPS_TIMEOUT_MS = 3000;
+
 export async function getPersistedBookedRooms(): Promise<Set<string>> {
   return new Promise((resolve) => {
-    const item = getMailboxItem();
-    if (!item || typeof (item as any).loadCustomPropertiesAsync !== "function") {
-      resolve(new Set());
-      return;
-    }
-    (item as any).loadCustomPropertiesAsync((result: any) => {
-      if (result.status === Office.AsyncResultStatus.Succeeded && result.value) {
-        const raw = result.value.get(BOOKED_ROOMS_PROP_KEY);
-        const emails = raw
-          ? String(raw).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
-          : [];
-        resolve(new Set(emails));
-      } else {
-        resolve(new Set());
+    let settled = false;
+    const done = (value: Set<string>) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    // Never hang: resolve with an empty set if the Office callback never fires.
+    setTimeout(() => done(new Set()), CUSTOM_PROPS_TIMEOUT_MS);
+
+    try {
+      const item = getMailboxItem();
+      if (!item || typeof (item as any).loadCustomPropertiesAsync !== "function") {
+        done(new Set());
+        return;
       }
-    });
+      (item as any).loadCustomPropertiesAsync((result: any) => {
+        try {
+          if (result.status === Office.AsyncResultStatus.Succeeded && result.value) {
+            const raw = result.value.get(BOOKED_ROOMS_PROP_KEY);
+            const emails = raw
+              ? String(raw).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+              : [];
+            done(new Set(emails));
+          } else {
+            done(new Set());
+          }
+        } catch {
+          done(new Set());
+        }
+      });
+    } catch (err) {
+      console.log("[AB Book IQ] getPersistedBookedRooms error (non-critical):", err);
+      done(new Set());
+    }
   });
 }
 
 export async function markRoomBooked(emailAddress: string, booked: boolean): Promise<void> {
   return new Promise((resolve) => {
-    const item = getMailboxItem();
-    if (!item || typeof (item as any).loadCustomPropertiesAsync !== "function") {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
       resolve();
-      return;
-    }
-    (item as any).loadCustomPropertiesAsync((result: any) => {
-      if (result.status !== Office.AsyncResultStatus.Succeeded || !result.value) {
-        resolve();
+    };
+
+    // Persistence is a best-effort safety net; never let it block or fail the
+    // booking flow. Always resolve (even on timeout/error).
+    setTimeout(done, CUSTOM_PROPS_TIMEOUT_MS);
+
+    try {
+      const item = getMailboxItem();
+      if (!item || typeof (item as any).loadCustomPropertiesAsync !== "function") {
+        done();
         return;
       }
-      const props = result.value;
-      const raw = props.get(BOOKED_ROOMS_PROP_KEY);
-      const set = new Set(
-        raw ? String(raw).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean) : []
-      );
-      const normalized = emailAddress.toLowerCase();
-      if (booked) {
-        set.add(normalized);
-      } else {
-        set.delete(normalized);
-      }
-      props.set(BOOKED_ROOMS_PROP_KEY, Array.from(set).join(","));
-      props.saveAsync(() => resolve());
-    });
+      (item as any).loadCustomPropertiesAsync((result: any) => {
+        try {
+          if (result.status !== Office.AsyncResultStatus.Succeeded || !result.value) {
+            done();
+            return;
+          }
+          const props = result.value;
+          const raw = props.get(BOOKED_ROOMS_PROP_KEY);
+          const set = new Set(
+            raw ? String(raw).split(",").map((e) => e.trim().toLowerCase()).filter(Boolean) : []
+          );
+          const normalized = emailAddress.toLowerCase();
+          if (booked) {
+            set.add(normalized);
+          } else {
+            set.delete(normalized);
+          }
+          props.set(BOOKED_ROOMS_PROP_KEY, Array.from(set).join(","));
+          props.saveAsync(() => done());
+        } catch (err) {
+          console.log("[AB Book IQ] markRoomBooked save error (non-critical):", err);
+          done();
+        }
+      });
+    } catch (err) {
+      console.log("[AB Book IQ] markRoomBooked error (non-critical):", err);
+      done();
+    }
   });
 }
 

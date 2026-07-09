@@ -2,6 +2,18 @@ import type { Room } from "../graph/places";
 import { addRoomAttendee, addRoomLocation, removeRoomLocation, clearLocation, isInOutlookContext, removeRoomAttendee, isClassicOutlookDesktop, markRoomBooked } from "../office/appointment";
 import { showNotification } from "../office/eventHandlers";
 
+/**
+ * Fire-and-forget persistence of the Booked marker. This is a best-effort
+ * safety net (mainly for classic Outlook's unreliable attendee reads) and must
+ * NEVER block or fail the booking flow — so we don't await it and swallow any
+ * error. The real attendee/location APIs determine booking success.
+ */
+function persistBookedMarker(emailAddress: string, booked: boolean): void {
+  void markRoomBooked(emailAddress, booked).catch((err) => {
+    console.log("[AB Book IQ] Persist booked marker failed (non-critical):", err);
+  });
+}
+
 export type BookingMode = "both" | "attendee" | "location";
 
 export interface BookingResult {
@@ -42,9 +54,9 @@ export async function bookRoom(
       // Book = add as attendee AND as the room-resource location.
       await addRoomAttendee(room.displayName, room.emailAddress);
       await addRoomLocation(room.displayName, room.emailAddress);
-      // Persist the Booked state so it survives refresh/reopen (required for
-      // classic Outlook where attendee reads are unreliable).
-      await markRoomBooked(room.emailAddress, true);
+      // Persist the Booked state so it survives refresh/reopen (mainly for
+      // classic Outlook where attendee reads are unreliable). Fire-and-forget.
+      persistBookedMarker(room.emailAddress, true);
       console.log("[AB Book IQ] Booked room as attendee + location:", room.displayName);
     } else if (mode === "attendee") {
       // Attendee only.
@@ -58,13 +70,13 @@ export async function bookRoom(
         await clearLocation(room.displayName);
       }
       // Attendee-only is not "Booked", so make sure it isn't persisted as such.
-      await markRoomBooked(room.emailAddress, false);
+      persistBookedMarker(room.emailAddress, false);
       console.log("[AB Book IQ] Added room as attendee only:", room.displayName);
     } else if (mode === "location") {
       // Location only (room resource). addRoomLocation never adds an attendee.
       await addRoomLocation(room.displayName, room.emailAddress);
       // Location-only is not "Booked".
-      await markRoomBooked(room.emailAddress, false);
+      persistBookedMarker(room.emailAddress, false);
       console.log("[AB Book IQ] Added room as location only:", room.displayName);
     }
 
@@ -119,8 +131,8 @@ export async function unbookRoom(room: Room, allRoomEmails?: string[]): Promise<
     // of the attendees and out of the location.
     await removeRoomAttendee(room.emailAddress);
     await removeRoomLocation(room.displayName, room.emailAddress);
-    // Clear the persisted Booked marker for this room.
-    await markRoomBooked(room.emailAddress, false);
+    // Clear the persisted Booked marker for this room (fire-and-forget).
+    persistBookedMarker(room.emailAddress, false);
 
     console.log("[AB Book IQ] Room unbooked:", room.displayName);
     showNotification(`${room.displayName} removed from meeting.`);
