@@ -210,17 +210,73 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
+ * Attempt requiredAttendees.addAsync once. Resolves true on success, false on
+ * failure (never rejects) so callers can decide whether to retry / fall back.
+ */
+function tryAddRequiredAttendee(
+  item: Office.AppointmentCompose,
+  displayName: string,
+  emailAddress: string
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      item.requiredAttendees.addAsync(
+        [{ displayName, emailAddress }],
+        (result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            resolve(true);
+          } else {
+            console.log("[AB Book IQ] requiredAttendees.addAsync failed:", result.error?.message);
+            resolve(false);
+          }
+        }
+      );
+    } catch (err) {
+      console.log("[AB Book IQ] requiredAttendees.addAsync threw:", err);
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Save the current compose draft. On new Outlook / OWA a brand-new (unsaved)
+ * appointment has no server item id, and requiredAttendees.addAsync fails with
+ * "The Exchange server returned an error" for room mailboxes until the draft is
+ * saved. Saving gives the item an id so the room resolves. Never rejects.
+ */
+function saveDraft(item: Office.AppointmentCompose): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      if (typeof (item as any).saveAsync !== "function") {
+        resolve();
+        return;
+      }
+      (item as any).saveAsync((result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          console.log("[AB Book IQ] Saved draft to enable attendee add");
+        } else {
+          console.log("[AB Book IQ] saveAsync failed (non-critical):", result.error?.message);
+        }
+        resolve();
+      });
+    } catch (err) {
+      console.log("[AB Book IQ] saveAsync threw (non-critical):", err);
+      resolve();
+    }
+  });
+}
+
+/**
  * Add a room as a required attendee (idempotent — won't add a duplicate).
  *
  * Classic Outlook desktop: uses requiredAttendees.addAsync (reliable there, and
  *   it also auto-fills the location; attendee-only callers undo that in bookRoom).
  *
- * New Outlook / OWA: requiredAttendees.addAsync throws "The Exchange server
- *   returned an error" for ROOM mailboxes, which previously aborted the whole
- *   Book flow. So we attempt requiredAttendees first (best effort for the
- *   attendee line) and, if it fails, fall back to enhancedLocation.addAsync with
- *   LocationType.Room — the supported way to add a room resource on new Outlook.
- *   This guarantees the room actually gets added instead of failing.
+ * New Outlook / OWA: requiredAttendees.addAsync fails with "The Exchange server
+ *   returned an error" for ROOM mailboxes on an UNSAVED compose item. So we try
+ *   once, and if it fails we saveAsync the draft (which gives it a server item
+ *   id) and retry — this reliably adds the room to the ATTENDEE line. Only if it
+ *   still fails do we fall back to enhancedLocation so the room isn't lost.
  */
 export async function addRoomAttendee(
   displayName: string,
@@ -256,32 +312,21 @@ export async function addRoomAttendee(
     });
   }
 
-  // New Outlook / OWA: try requiredAttendees, but do not reject on failure.
-  const addedViaAttendees = await new Promise<boolean>((resolve) => {
-    try {
-      item.requiredAttendees.addAsync(
-        [{ displayName, emailAddress }],
-        (result: any) => {
-          if (result.status === Office.AsyncResultStatus.Succeeded) {
-            console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
-            resolve(true);
-          } else {
-            console.log("[AB Book IQ] requiredAttendees.addAsync failed, will fall back to enhancedLocation:", result.error?.message);
-            resolve(false);
-          }
-        }
-      );
-    } catch (err) {
-      console.log("[AB Book IQ] requiredAttendees.addAsync threw, will fall back:", err);
-      resolve(false);
-    }
-  });
-
-  if (addedViaAttendees) {
+  // New Outlook / OWA: first attempt to add to the attendee line.
+  if (await tryAddRequiredAttendee(item, displayName, emailAddress)) {
+    console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
     return;
   }
 
-  // Fallback: add the room via enhancedLocation as a Room resource.
+  // Likely an unsaved draft — save it so Exchange can resolve the room, retry.
+  console.log("[AB Book IQ] Attendee add failed; saving draft and retrying");
+  await saveDraft(item);
+  if (await tryAddRequiredAttendee(item, displayName, emailAddress)) {
+    console.log("[AB Book IQ] Added room to requiredAttendees after save:", displayName);
+    return;
+  }
+
+  // Last resort: add via enhancedLocation so the room isn't lost entirely.
   if (hasEnhancedLocation(item)) {
     await new Promise<void>((resolve, reject) => {
       const locationIdentifier = {
