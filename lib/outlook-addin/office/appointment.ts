@@ -212,9 +212,15 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 /**
  * Add a room as a required attendee (idempotent — won't add a duplicate).
  *
- * Uses requiredAttendees.addAsync. On classic Outlook desktop this ALSO
- * auto-fills the location; callers that want attendee-only must undo that with
- * removeRoomLocation (see bookRoom).
+ * Classic Outlook desktop: uses requiredAttendees.addAsync (reliable there, and
+ *   it also auto-fills the location; attendee-only callers undo that in bookRoom).
+ *
+ * New Outlook / OWA: requiredAttendees.addAsync throws "The Exchange server
+ *   returned an error" for ROOM mailboxes, which previously aborted the whole
+ *   Book flow. So we attempt requiredAttendees first (best effort for the
+ *   attendee line) and, if it fails, fall back to enhancedLocation.addAsync with
+ *   LocationType.Room — the supported way to add a room resource on new Outlook.
+ *   This guarantees the room actually gets added instead of failing.
  */
 export async function addRoomAttendee(
   displayName: string,
@@ -232,20 +238,70 @@ export async function addRoomAttendee(
     return;
   }
 
-  return new Promise((resolve, reject) => {
-    item.requiredAttendees.addAsync(
-      [{ displayName, emailAddress }],
-      (result: any) => {
+  // Classic desktop: requiredAttendees works reliably (unchanged behavior).
+  if (isClassicOutlookDesktop()) {
+    return new Promise((resolve, reject) => {
+      item.requiredAttendees.addAsync(
+        [{ displayName, emailAddress }],
+        (result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+            resolve();
+          } else {
+            console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
+            reject(new Error(result.error?.message || "Failed to add attendee"));
+          }
+        }
+      );
+    });
+  }
+
+  // New Outlook / OWA: try requiredAttendees, but do not reject on failure.
+  const addedViaAttendees = await new Promise<boolean>((resolve) => {
+    try {
+      item.requiredAttendees.addAsync(
+        [{ displayName, emailAddress }],
+        (result: any) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+            resolve(true);
+          } else {
+            console.log("[AB Book IQ] requiredAttendees.addAsync failed, will fall back to enhancedLocation:", result.error?.message);
+            resolve(false);
+          }
+        }
+      );
+    } catch (err) {
+      console.log("[AB Book IQ] requiredAttendees.addAsync threw, will fall back:", err);
+      resolve(false);
+    }
+  });
+
+  if (addedViaAttendees) {
+    return;
+  }
+
+  // Fallback: add the room via enhancedLocation as a Room resource.
+  if (hasEnhancedLocation(item)) {
+    await new Promise<void>((resolve, reject) => {
+      const locationIdentifier = {
+        id: emailAddress,
+        type: Office.MailboxEnums.LocationType.Room,
+      };
+      (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
         if (result.status === Office.AsyncResultStatus.Succeeded) {
-          console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+          console.log("[AB Book IQ] Added room via enhancedLocation fallback:", displayName);
           resolve();
         } else {
-          console.log("[AB Book IQ] Failed to add to requiredAttendees:", result.error?.message);
-          reject(new Error(result.error?.message || "Failed to add attendee"));
+          console.log("[AB Book IQ] enhancedLocation fallback failed:", result.error?.message);
+          reject(new Error(result.error?.message || "Failed to add room"));
         }
-      }
-    );
-  });
+      });
+    });
+    return;
+  }
+
+  throw new Error("Failed to add room as attendee");
 }
 
 /**
