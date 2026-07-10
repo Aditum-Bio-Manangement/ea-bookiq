@@ -210,21 +210,46 @@ export async function getCurrentAttendees(): Promise<Attendee[]> {
 }
 
 /**
- * Add a room as a resource attendee (idempotent — won't add a duplicate).
+ * Add a single recipient to requiredAttendees. Resolves true on success and
+ * false on failure (never rejects). Per the Office.js docs, the recipients
+ * array may contain either EmailUser objects or plain SMTP address strings.
+ */
+function tryAddRequiredAttendee(
+  item: Office.AppointmentCompose,
+  recipient: string | { displayName: string; emailAddress: string }
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      item.requiredAttendees.addAsync([recipient] as any, (result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          resolve(true);
+        } else {
+          console.log("[AB Book IQ] requiredAttendees.addAsync failed:", result.error?.message);
+          resolve(false);
+        }
+      });
+    } catch (err) {
+      console.log("[AB Book IQ] requiredAttendees.addAsync threw:", err);
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Add a room as a required attendee (idempotent — won't add a duplicate).
  *
- * Classic Outlook desktop: uses requiredAttendees.addAsync. This reliably adds
- *   the room to the Required attendee line (and auto-fills the location, which
- *   attendee-only callers undo in bookRoom). Unchanged behavior.
+ * All Outlook clients use requiredAttendees.addAsync — the documented, supported
+ * way to add an attendee (including a room mailbox) to an appointment in classic
+ * Outlook, new Outlook, and Outlook on the web. Per the docs the recipient can
+ * be an EmailUser object OR a plain SMTP string, so we try the object form first
+ * and, if the server rejects it, retry with the bare SMTP string (some Exchange
+ * setups only resolve a room mailbox from the raw address).
  *
- * New Outlook / OWA: requiredAttendees.addAsync is NOT supported for room
- *   mailboxes here — it fails with "The Exchange server returned an error"
- *   regardless of whether the draft is saved, because Exchange rejects a room
- *   mailbox as a person-type required attendee. The supported way to book a
- *   room is enhancedLocation.addAsync with LocationType.Room: Outlook then
- *   automatically treats it as a RESOURCE (the room receives the invite when
- *   sent). New Outlook displays room resources in the room/location field
- *   rather than the people attendee line — that display is controlled by
- *   Outlook and there is no API to place a room in the attendee text line.
+ * On new Outlook / OWA we do NOT reject on failure and we do NOT fall back to
+ * enhancedLocation here — routing the room into the location field is what
+ * caused it to appear as a location instead of an attendee. Booking the room as
+ * a location is handled separately by addRoomLocation (only in "both"/"location"
+ * modes), so attendee-only bookings never populate the location field.
  */
 export async function addRoomAttendee(
   displayName: string,
@@ -242,7 +267,8 @@ export async function addRoomAttendee(
     return;
   }
 
-  // Classic desktop: requiredAttendees works reliably (unchanged behavior).
+  // Classic desktop: requiredAttendees works reliably (unchanged behavior —
+  // reject on failure so callers surface the error).
   if (isClassicOutlookDesktop()) {
     return new Promise((resolve, reject) => {
       item.requiredAttendees.addAsync(
@@ -260,28 +286,21 @@ export async function addRoomAttendee(
     });
   }
 
-  // New Outlook / OWA: use the supported room-resource API. This books the room
-  // (it becomes a resource that receives the invite when the meeting is sent).
-  if (hasEnhancedLocation(item)) {
-    await new Promise<void>((resolve, reject) => {
-      const locationIdentifier = {
-        id: emailAddress,
-        type: Office.MailboxEnums.LocationType.Room,
-      };
-      (item as any).enhancedLocation.addAsync([locationIdentifier], (result: any) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
-          console.log("[AB Book IQ] Added room as resource (enhancedLocation):", displayName);
-          resolve();
-        } else {
-          console.log("[AB Book IQ] enhancedLocation.addAsync failed:", result.error?.message);
-          reject(new Error(result.error?.message || "Failed to add room"));
-        }
-      });
-    });
+  // New Outlook / OWA: try the object form, then retry with a plain SMTP string.
+  if (await tryAddRequiredAttendee(item, { displayName, emailAddress })) {
+    console.log("[AB Book IQ] Added room to requiredAttendees:", displayName);
+    return;
+  }
+  console.log("[AB Book IQ] Retrying attendee add with SMTP string:", emailAddress);
+  if (await tryAddRequiredAttendee(item, emailAddress)) {
+    console.log("[AB Book IQ] Added room to requiredAttendees (string form):", displayName);
     return;
   }
 
-  throw new Error("Failed to add room");
+  // Do not throw and do not fall back to location — let addRoomLocation handle
+  // location for "both"/"location" modes so attendee-only never lands in the
+  // location field.
+  console.log("[AB Book IQ] Could not add room to requiredAttendees:", displayName);
 }
 
 /**
