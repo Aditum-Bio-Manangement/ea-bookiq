@@ -182,6 +182,9 @@ npm run dev
 
 # Build the static export (requires NEXT_PUBLIC_* vars)
 npm run build
+
+# Serve the static export locally (also used if Render is redeployed from this branch)
+npm start
 ```
 
 ## Configuration
