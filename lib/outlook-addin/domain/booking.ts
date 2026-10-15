@@ -53,7 +53,13 @@ export async function bookRoom(
     if (mode === "both") {
       // Book = add as attendee AND as the room-resource location.
       await addRoomAttendee(room.displayName, room.emailAddress);
-      await addRoomLocation(room.displayName, room.emailAddress);
+      // On new Outlook / OWA, addRoomAttendee already calls enhancedLocation
+      // (LocationType.Room). Calling addRoomLocation would duplicate that.
+      // On classic, addRoomAttendee uses requiredAttendees and we still need
+      // the plain-text location set via addRoomLocation.
+      if (isClassicOutlookDesktop()) {
+        await addRoomLocation(room.displayName, room.emailAddress);
+      }
       // Persist the Booked state so it survives refresh/reopen (mainly for
       // classic Outlook where attendee reads are unreliable). Fire-and-forget.
       persistBookedMarker(room.emailAddress, true);
