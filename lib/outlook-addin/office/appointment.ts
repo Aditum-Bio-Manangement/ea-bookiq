@@ -278,6 +278,49 @@ export async function addRoomAttendee(
         }
       });
     });
+
+    // Best-effort: also place the room on Required attendees via get+setAsync.
+    // addAsync often fails on OWA/new Outlook (Exchange 9042); setAsync is the
+    // known workaround. Ignore failure so location booking still succeeds.
+    // New Outlook may still surface the room under Location/Resources rather
+    // than the people line — that is host-controlled.
+    try {
+      await new Promise<void>((resolve) => {
+        item.requiredAttendees.getAsync((getResult: any) => {
+          if (getResult.status !== Office.AsyncResultStatus.Succeeded) {
+            console.log(
+              "[AB Book IQ] requiredAttendees.getAsync failed (non-critical):",
+              getResult.error?.message
+            );
+            resolve();
+            return;
+          }
+          const current = (getResult.value || []).map((a: any) => ({
+            displayName: a.displayName,
+            emailAddress: a.emailAddress,
+          }));
+          const lower = emailAddress.toLowerCase();
+          if (current.some((a: any) => (a.emailAddress || "").toLowerCase() === lower)) {
+            resolve();
+            return;
+          }
+          current.push({ displayName, emailAddress });
+          item.requiredAttendees.setAsync(current, (setResult: any) => {
+            if (setResult.status === Office.AsyncResultStatus.Succeeded) {
+              console.log("[AB Book IQ] Also added room via requiredAttendees.setAsync:", displayName);
+            } else {
+              console.log(
+                "[AB Book IQ] requiredAttendees.setAsync skipped/failed (non-critical):",
+                setResult.error?.message
+              );
+            }
+            resolve();
+          });
+        });
+      });
+    } catch (err) {
+      console.log("[AB Book IQ] requiredAttendees.setAsync error (non-critical):", err);
+    }
     return;
   }
 
