@@ -304,6 +304,7 @@ export function TaskPane() {
         <div className="mt-4 p-3 bg-muted rounded-lg text-xs font-mono space-y-1">
           <p>NEXT_PUBLIC_AZURE_CLIENT_ID</p>
           <p>NEXT_PUBLIC_AZURE_TENANT_ID</p>
+          <p>NEXT_PUBLIC_REDIRECT_URI</p>
         </div>
         <p className="mt-3 text-xs text-muted-foreground text-center max-w-[280px]">
           Add these in the Vars section of the settings menu (gear icon, top right).
@@ -335,7 +336,9 @@ export function TaskPane() {
           Sign In with Microsoft
         </Button>
         {error && (
-          <p className="mt-2 text-xs text-destructive">{error}</p>
+          <p className="mt-2 text-xs text-destructive text-center max-w-[280px] whitespace-pre-wrap">
+            {error}
+          </p>
         )}
       </div>
     );

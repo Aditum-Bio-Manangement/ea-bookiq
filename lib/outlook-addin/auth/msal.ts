@@ -9,6 +9,7 @@ import {
 import { MSAL_CONFIG, GRAPH_SCOPES } from "../config/offices";
 
 let msalInstance: IPublicClientApplication | null = null;
+let failedSignInCount = 0;
 
 // Polyfill history.replaceState if not available (e.g., in iframes)
 function ensureHistoryApi(): void {
@@ -26,15 +27,95 @@ function ensureHistoryApi(): void {
   }
 }
 
-// Get redirect URI at runtime (must be called client-side)
-function getRedirectUri(): string {
-  if (process.env.NEXT_PUBLIC_REDIRECT_URI) {
-    return process.env.NEXT_PUBLIC_REDIRECT_URI;
+function requireRedirectUri(): string {
+  const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI;
+  if (!redirectUri) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_REDIRECT_URI. Set it to the hosted task pane URL before build or start."
+    );
   }
+  return redirectUri;
+}
+
+function getAuthErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "errorCode" in error) {
+    const code = (error as { errorCode?: unknown }).errorCode;
+    if (typeof code === "string" && code.length > 0) {
+      return code;
+    }
+  }
+  return undefined;
+}
+
+function getAuthErrorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const authError = error as { errorMessage?: string; message?: string };
+    if (authError.errorMessage) {
+      return authError.errorMessage;
+    }
+    if (authError.message) {
+      return authError.message;
+    }
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Sign in failed";
+}
+
+function formatSignInError(error: unknown, cacheCleared: boolean): Error {
+  const errorCode = getAuthErrorCode(error);
+  const message = getAuthErrorMessage(error);
+  const details = errorCode
+    ? `${message} (error code: ${errorCode})`
+    : message;
+  const suffix = cacheCleared
+    ? " Sign-in cache was cleared after 2 failed attempts."
+    : "";
+  const formatted = new Error(`${details}${suffix}`);
+  if (errorCode) {
+    (formatted as Error & { errorCode?: string }).errorCode = errorCode;
+  }
+  return formatted;
+}
+
+/**
+ * Clear MSAL tokens and auth state from memory and browser storage.
+ * Used after repeated sign-in failures so the next attempt starts clean.
+ */
+export async function clearMsalCache(): Promise<void> {
+  if (msalInstance) {
+    try {
+      await msalInstance.clearCache();
+    } catch (err) {
+      console.warn("[AB Book IQ] MSAL clearCache warning:", err);
+    }
+  }
+
   if (typeof window !== "undefined") {
-    return `${window.location.origin}/taskpane`;
+    const storages = [window.localStorage, window.sessionStorage];
+    for (const storage of storages) {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (!key) continue;
+        const normalized = key.toLowerCase();
+        if (
+          normalized.includes("msal") ||
+          normalized.startsWith("server-telemetry") ||
+          normalized.includes("login.windows") ||
+          normalized.includes("login.microsoftonline")
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        storage.removeItem(key);
+      }
+    }
   }
-  return "http://localhost:3000/taskpane";
+
+  msalInstance = null;
 }
 
 // Build MSAL config at runtime to ensure redirectUri is correct
@@ -43,14 +124,14 @@ function getMsalConfig(): Configuration {
     auth: {
       clientId: MSAL_CONFIG.clientId,
       authority: `https://login.microsoftonline.com/${MSAL_CONFIG.tenantId}`,
-      redirectUri: getRedirectUri(),
+      redirectUri: requireRedirectUri(),
       // Disable navigation client to prevent history.replaceState errors in iframes
       navigateToLoginRequestUrl: false,
     },
     cache: {
       // Use localStorage for persistent sessions across browser sessions
       cacheLocation: "localStorage",
-      storeAuthStateInCookie: true,
+      storeAuthStateInCookie: false,
     },
     system: {
       // Prevent MSAL from using history API which fails in iframes
@@ -121,7 +202,7 @@ export async function acquireGraphToken(): Promise<string> {
       // Need interactive login - use popup with redirectUri
       const popupRequest = {
         ...request,
-        redirectUri: getRedirectUri(),
+        redirectUri: requireRedirectUri(),
       };
       const response = await msalInstance!.acquireTokenPopup(popupRequest);
       return response.accessToken;
@@ -141,12 +222,22 @@ export async function signIn(): Promise<AccountInfo | null> {
   try {
     const response = await msalInstance!.loginPopup({
       scopes: GRAPH_SCOPES,
-      redirectUri: getRedirectUri(),
+      redirectUri: requireRedirectUri(),
     });
+    failedSignInCount = 0;
     return response.account;
   } catch (error) {
+    failedSignInCount += 1;
     console.error("[AB Book IQ] Sign in failed:", error);
-    throw error;
+
+    let cacheCleared = false;
+    if (failedSignInCount >= 2) {
+      await clearMsalCache();
+      failedSignInCount = 0;
+      cacheCleared = true;
+    }
+
+    throw formatSignInError(error, cacheCleared);
   }
 }
 

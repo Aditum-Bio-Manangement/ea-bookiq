@@ -95,6 +95,14 @@ AB Room IQ is a Microsoft Outlook add-in that streamlines the process of booking
 - Mail-enabled security groups: `ea-cambridge@aditumbio.com` and `ea-oakland@aditumbio.com`
 - Conference rooms with naming convention: `Room Name - Location` (e.g., "Board Room - Cambridge")
 
+## Hosting
+
+- **Azure Static Web Apps (target host):** https://zealous-tree-04263bb0f.5.azurestaticapps.net
+- **Planned custom domain:** https://roomiq.aditumbio.com (DNS is handled separately)
+- **Render (fallback until cutover):** https://ea-bookiq.onrender.com remains the live host until Azure is cut over. Do not remove or change the Render service until that cutover is complete.
+
+The app is a static Next.js export (`output: 'export'`) so Azure Static Web Apps can serve `/` and `/taskpane` as static files. `NEXT_PUBLIC_REDIRECT_URI` is required at build time. A missing value fails the build with a clear error.
+
 ## Setup
 
 ### 1. Clone and Install
@@ -102,19 +110,28 @@ AB Room IQ is a Microsoft Outlook add-in that streamlines the process of booking
 ```bash
 git clone <repository-url>
 cd ea-roomiq
-pnpm install
+npm install
 ```
 
 ### 2. Configure Environment Variables
 
-Copy `.env.example` to `.env.local` and fill in your values:
+Set these public build-time variables before `npm run build`:
 
 ```bash
 # Azure AD App Registration
-NEXT_PUBLIC_AZURE_CLIENT_ID=your-application-client-id
-NEXT_PUBLIC_AZURE_TENANT_ID=your-tenant-id
-NEXT_PUBLIC_REDIRECT_URI=https://your-domain.com/taskpane
+NEXT_PUBLIC_AZURE_CLIENT_ID=f6faff63-5957-497a-bb6f-7079d9a8e8f5
+NEXT_PUBLIC_AZURE_TENANT_ID=672c7181-708e-4c64-9b93-4bc263e0a2e5
+NEXT_PUBLIC_REDIRECT_URI=https://zealous-tree-04263bb0f.5.azurestaticapps.net/taskpane
 ```
+
+For local development, point `NEXT_PUBLIC_REDIRECT_URI` at `http://localhost:3000/taskpane` and add that URI to the app registration SPA redirect list.
+
+GitHub Actions reads the same values from repository variables or secrets:
+
+- `AZURE_STATIC_WEB_APPS_API_TOKEN` (Actions secret)
+- `NEXT_PUBLIC_AZURE_CLIENT_ID` (variable or secret)
+- `NEXT_PUBLIC_AZURE_TENANT_ID` (variable or secret)
+- `NEXT_PUBLIC_REDIRECT_URI` (variable or secret, Azure task pane URL)
 
 ### 3. Azure AD App Registration
 
@@ -122,7 +139,7 @@ NEXT_PUBLIC_REDIRECT_URI=https://your-domain.com/taskpane
 2. Create a new registration or use an existing one
 3. Under **Authentication**:
    - Add a **Single-page application** platform
-   - Add redirect URI: `https://your-domain.com/taskpane`
+   - Add redirect URI: `https://zealous-tree-04263bb0f.5.azurestaticapps.net/taskpane` (and the custom domain task pane URL when DNS is ready)
    - Enable **Access tokens** and **ID tokens** under Implicit grant
 4. Under **API permissions**, add:
    - `User.Read`
@@ -133,10 +150,13 @@ NEXT_PUBLIC_REDIRECT_URI=https://your-domain.com/taskpane
 
 ### 4. Deploy
 
-Deploy to your hosting platform (Render, Vercel, etc.):
+Azure Static Web Apps is the target host. The GitHub Actions workflow in `.github/workflows/azure-static-web-apps.yml` builds the static export and deploys it. Render remains the fallback host until cutover.
 
 ```bash
-pnpm build
+NEXT_PUBLIC_AZURE_CLIENT_ID=... \
+NEXT_PUBLIC_AZURE_TENANT_ID=... \
+NEXT_PUBLIC_REDIRECT_URI=https://zealous-tree-04263bb0f.5.azurestaticapps.net/taskpane \
+npm run build
 ```
 
 ### 5. Install the Add-in
@@ -152,19 +172,16 @@ pnpm build
 1. Go to [Outlook on the Web](https://outlook.office.com)
 2. Create a new meeting
 3. Click **...** > **Get Add-ins** > **My add-ins** > **Add a custom add-in** > **Add from URL**
-4. Enter: `https://your-domain.com/manifest.xml`
+4. Enter: `https://zealous-tree-04263bb0f.5.azurestaticapps.net/manifest.xml`
 
 ## Development
 
 ```bash
 # Start development server
-pnpm dev
+npm run dev
 
-# Build for production
-pnpm build
-
-# Start production server
-pnpm start
+# Build the static export (requires NEXT_PUBLIC_* vars)
+npm run build
 ```
 
 ## Configuration
