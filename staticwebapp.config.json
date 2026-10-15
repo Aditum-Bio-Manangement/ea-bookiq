@@ -1,0 +1,31 @@
+{
+  "routes": [
+    {
+      "route": "/taskpane",
+      "rewrite": "/taskpane.html"
+    },
+    {
+      "route": "/manifest.xml",
+      "headers": {
+        "Content-Type": "application/xml; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      }
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/taskpane",
+      "/taskpane.html",
+      "/manifest.xml",
+      "/functions.html",
+      "/launchevent.js",
+      "/icons/*",
+      "/images/*",
+      "*.{css,js,mjs,xml,png,jpg,jpeg,gif,ico,svg,txt,woff,woff2,html,map,json}"
+    ]
+  },
+  "mimeTypes": {
+    ".xml": "application/xml"
+  }
+}

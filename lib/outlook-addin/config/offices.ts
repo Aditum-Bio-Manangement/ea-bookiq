@@ -27,16 +27,14 @@ export const OFFICE_CONFIGS: Record<string, OfficeConfig> = {
   },
 };
 
-// Get redirect URI with fallback for development
 const getRedirectUri = () => {
-  if (process.env.NEXT_PUBLIC_REDIRECT_URI) {
-    return process.env.NEXT_PUBLIC_REDIRECT_URI;
+  const redirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI;
+  if (!redirectUri) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_REDIRECT_URI. Set it to the hosted task pane URL before build or start."
+    );
   }
-  // Fallback for development/preview - use current origin
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/taskpane`;
-  }
-  return "http://localhost:3000/taskpane";
+  return redirectUri;
 };
 
 export const MSAL_CONFIG = {
@@ -49,9 +47,10 @@ export const MSAL_CONFIG = {
 
 // Check if MSAL is properly configured
 export const isMsalConfigured = () => {
-  return (
+  return Boolean(
     process.env.NEXT_PUBLIC_AZURE_CLIENT_ID &&
-    process.env.NEXT_PUBLIC_AZURE_TENANT_ID
+      process.env.NEXT_PUBLIC_AZURE_TENANT_ID &&
+      process.env.NEXT_PUBLIC_REDIRECT_URI
   );
 };
 

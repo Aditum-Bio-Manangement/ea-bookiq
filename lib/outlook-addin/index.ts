@@ -9,6 +9,7 @@ export {
   signOut,
   isSignedIn,
   getAccount,
+  clearMsalCache,
 } from "./auth/msal";
 
 // Config
