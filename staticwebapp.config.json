@@ -5,10 +5,6 @@
       "rewrite": "/taskpane.html"
     },
     {
-      "route": "/taskpane/",
-      "rewrite": "/taskpane.html"
-    },
-    {
       "route": "/manifest.xml",
       "headers": {
         "Content-Type": "application/xml; charset=utf-8",
