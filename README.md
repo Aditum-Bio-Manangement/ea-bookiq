@@ -64,7 +64,7 @@ AB Room IQ is a Microsoft Outlook add-in that streamlines the process of booking
 
 /lib/outlook-addin
   /auth
-    msal.ts           # MSAL authentication (popup mode)
+    msal.ts           # MSAL authentication (NAA when supported, popup fallback)
   /config
     offices.ts        # Cambridge/Oakland office configuration
   /domain
@@ -79,6 +79,9 @@ AB Room IQ is a Microsoft Outlook add-in that streamlines the process of booking
   /office
     appointment.ts    # Office.js appointment APIs
     eventHandlers.ts  # Office.js event handling
+
+/docs
+  auth.md             # Entra redirect URIs and NAA setup
 
 /public
   manifest.xml        # Outlook add-in manifest
@@ -139,8 +142,10 @@ GitHub Actions reads the same values from repository variables or secrets:
 2. Create a new registration or use an existing one
 3. Under **Authentication**:
    - Add a **Single-page application** platform
-   - Add redirect URI: `https://zealous-tree-04263bb0f.5.azurestaticapps.net/taskpane` (and the custom domain task pane URL when DNS is ready)
-   - Enable **Access tokens** and **ID tokens** under Implicit grant
+   - Add redirect URI: `https://roomiq.aditumbio.com/taskpane` (keep this)
+   - Add SPA redirect URI: `brk-multihub://roomiq.aditumbio.com` (required for Nested App Auth)
+   - Implicit grant Access tokens and ID tokens boxes can stay off (MSAL uses auth code + PKCE)
+   - See `docs/auth.md` for the full Entra checklist
 4. Under **API permissions**, add:
    - `User.Read`
    - `Calendars.Read.Shared`
@@ -179,6 +184,9 @@ npm run build
 ```bash
 # Start development server
 npm run dev
+
+# Unit tests for MSAL / NAA auth helpers
+npm test
 
 # Build the static export (requires NEXT_PUBLIC_* vars)
 npm run build
@@ -233,9 +241,9 @@ Ensure your Azure AD app registration has the correct redirect URI configured as
 
 ### Sign-in Issues
 
-1. Clear browser cache/localStorage
+1. Confirm Entra has the SPA redirects in `docs/auth.md` (`https://roomiq.aditumbio.com/taskpane` and `brk-multihub://roomiq.aditumbio.com`)
 2. Verify the Azure AD app has the correct permissions with admin consent
-3. Check that implicit grant is enabled for access and ID tokens
+3. If silent sign-in fails, use the Sign In button. Do not expect a popup to open on its own during room loads.
 
 ## License
 

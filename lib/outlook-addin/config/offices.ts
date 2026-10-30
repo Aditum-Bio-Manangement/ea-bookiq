@@ -58,6 +58,7 @@ export const GRAPH_SCOPES = [
   "openid",
   "profile",
   "email",
+  "offline_access",
   "User.Read",
   "Calendars.Read.Shared",
   "Place.Read.All",
