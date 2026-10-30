@@ -1,15 +1,57 @@
 import {
   PublicClientApplication,
+  createNestablePublicClientApplication,
   type IPublicClientApplication,
   type Configuration,
   type AccountInfo,
   type AuthenticationResult,
-  InteractionRequiredAuthError,
+  type SilentRequest,
+  type PopupRequest,
 } from "@azure/msal-browser";
 import { MSAL_CONFIG, GRAPH_SCOPES } from "../config/offices";
+import {
+  formatSignInError,
+  getBrokerRedirectUri,
+  getMailboxLoginHint,
+  isInteractionRequiredError,
+  isNestedAppAuthSupported,
+  isUnrecoverableInvalidGrant,
+} from "./msalHelpers";
+
+export {
+  formatSignInError,
+  getBrokerRedirectUri,
+  getMailboxLoginHint,
+  isInteractionRequiredError,
+  isNestedAppAuthSupported,
+  isUnrecoverableInvalidGrant,
+  routeAuthFailure,
+} from "./msalHelpers";
 
 let msalInstance: IPublicClientApplication | null = null;
-let failedSignInCount = 0;
+let isNaaMode = false;
+
+export type MsalRuntime = {
+  createPublicClientApplication: (config: Configuration) => IPublicClientApplication;
+  createNestablePublicClientApplication: (
+    config: Configuration
+  ) => Promise<IPublicClientApplication>;
+};
+
+const defaultRuntime: MsalRuntime = {
+  createPublicClientApplication: (config) => new PublicClientApplication(config),
+  createNestablePublicClientApplication,
+};
+
+let runtime: MsalRuntime = defaultRuntime;
+
+function getOfficeGlobal(): typeof Office | undefined {
+  return typeof Office !== "undefined" ? Office : undefined;
+}
+
+function currentLoginHint(): string | undefined {
+  return getMailboxLoginHint(getOfficeGlobal(), getAccount()?.username);
+}
 
 // Polyfill history.replaceState if not available (e.g., in iframes)
 function ensureHistoryApi(): void {
@@ -37,51 +79,42 @@ function requireRedirectUri(): string {
   return redirectUri;
 }
 
-function getAuthErrorCode(error: unknown): string | undefined {
-  if (error && typeof error === "object" && "errorCode" in error) {
-    const code = (error as { errorCode?: unknown }).errorCode;
-    if (typeof code === "string" && code.length > 0) {
-      return code;
-    }
+function currentHost(): string {
+  if (typeof window !== "undefined" && window.location?.host) {
+    return window.location.host;
   }
-  return undefined;
+  return "";
 }
 
-function getAuthErrorMessage(error: unknown): string {
-  if (error && typeof error === "object") {
-    const authError = error as { errorMessage?: string; message?: string };
-    if (authError.errorMessage) {
-      return authError.errorMessage;
-    }
-    if (authError.message) {
-      return authError.message;
-    }
+function setActiveAccountSafe(account: AccountInfo | null | undefined): void {
+  if (!msalInstance || !account) return;
+  try {
+    msalInstance.setActiveAccount(account);
+  } catch (err) {
+    // NAA does not support setActiveAccount.
+    console.warn("[AB Book IQ] setActiveAccount skipped:", err);
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Sign in failed";
 }
 
-function formatSignInError(error: unknown, cacheCleared: boolean): Error {
-  const errorCode = getAuthErrorCode(error);
-  const message = getAuthErrorMessage(error);
-  const details = errorCode
-    ? `${message} (error code: ${errorCode})`
-    : message;
-  const suffix = cacheCleared
-    ? " Sign-in cache was cleared after 2 failed attempts."
-    : "";
-  const formatted = new Error(`${details}${suffix}`);
-  if (errorCode) {
-    (formatted as Error & { errorCode?: string }).errorCode = errorCode;
-  }
-  return formatted;
+function tokenRequest(account?: AccountInfo | null): SilentRequest {
+  const loginHint = currentLoginHint();
+  return {
+    scopes: GRAPH_SCOPES,
+    ...(account ? { account } : {}),
+    ...(loginHint ? { loginHint } : {}),
+  };
+}
+
+function popupRequest(account?: AccountInfo | null): PopupRequest {
+  return {
+    ...tokenRequest(account),
+    redirectUri: requireRedirectUri(),
+  };
 }
 
 /**
  * Clear MSAL tokens and auth state from memory and browser storage.
- * Used after repeated sign-in failures so the next attempt starts clean.
+ * Only used on explicit sign-out or an unrecoverable invalid_grant.
  */
 export async function clearMsalCache(): Promise<void> {
   if (msalInstance) {
@@ -95,6 +128,7 @@ export async function clearMsalCache(): Promise<void> {
   if (typeof window !== "undefined") {
     const storages = [window.localStorage, window.sessionStorage];
     for (const storage of storages) {
+      if (!storage) continue;
       const keysToRemove: string[] = [];
       for (let i = 0; i < storage.length; i++) {
         const key = storage.key(i);
@@ -116,57 +150,96 @@ export async function clearMsalCache(): Promise<void> {
   }
 
   msalInstance = null;
+  isNaaMode = false;
 }
 
-// Build MSAL config at runtime to ensure redirectUri is correct
+async function clearCacheIfUnrecoverableGrant(error: unknown): Promise<void> {
+  if (!isUnrecoverableInvalidGrant(error)) return;
+  console.warn("[AB Book IQ] Clearing MSAL cache after unrecoverable invalid_grant");
+  await clearMsalCache();
+}
+
 function getMsalConfig(): Configuration {
   return {
     auth: {
       clientId: MSAL_CONFIG.clientId,
       authority: `https://login.microsoftonline.com/${MSAL_CONFIG.tenantId}`,
       redirectUri: requireRedirectUri(),
-      // Disable navigation client to prevent history.replaceState errors in iframes
       navigateToLoginRequestUrl: false,
     },
     cache: {
-      // Use localStorage for persistent sessions across browser sessions
       cacheLocation: "localStorage",
       storeAuthStateInCookie: false,
     },
     system: {
-      // Prevent MSAL from using history API which fails in iframes
       allowRedirectInIframe: true,
     },
   };
 }
 
+function getNestedAppAuthConfig(): Configuration {
+  return {
+    auth: {
+      clientId: MSAL_CONFIG.clientId,
+      authority: `https://login.microsoftonline.com/${MSAL_CONFIG.tenantId}`,
+    },
+    cache: {
+      cacheLocation: "localStorage",
+      storeAuthStateInCookie: false,
+    },
+  };
+}
+
+async function initializeStandardMsal(): Promise<IPublicClientApplication> {
+  ensureHistoryApi();
+  const instance = runtime.createPublicClientApplication(getMsalConfig());
+  try {
+    await instance.initialize();
+  } catch (initError) {
+    console.warn("[AB Book IQ] MSAL initialize warning (may be in iframe):", initError);
+  }
+  isNaaMode = false;
+  console.log("[AB Book IQ] Standard MSAL initialized with popup fallback");
+  return instance;
+}
+
 /**
- * Initialize MSAL - uses standard popup authentication
- * NAA (Nested App Authentication) is disabled due to broker URI issues
+ * Initialize MSAL. Uses Nested App Auth when the host supports NestedAppAuth 1.1,
+ * otherwise the existing popup PublicClientApplication.
  */
 export async function initializeMsal(): Promise<IPublicClientApplication> {
   if (msalInstance) {
     return msalInstance;
   }
 
-  // Ensure history API is available (polyfill for iframe contexts)
   ensureHistoryApi();
 
-  // Use standard MSAL with popup authentication
-  // NAA mode disabled - broker redirect URIs have compatibility issues
-  msalInstance = new PublicClientApplication(getMsalConfig());
-
-  // Initialize MSAL - wrap in try-catch to handle iframe/restricted contexts
-  try {
-    await msalInstance.initialize();
-  } catch (initError) {
-    // In some iframe contexts, history.replaceState may not be available
-    // MSAL can still function for popup-based auth
-    console.warn("[AB Book IQ] MSAL initialize warning (may be in iframe):", initError);
+  if (isNestedAppAuthSupported(getOfficeGlobal())) {
+    try {
+      const host = currentHost();
+      if (host) {
+        console.log("[AB Book IQ] NAA broker redirect URI:", getBrokerRedirectUri(host));
+      }
+      msalInstance = await runtime.createNestablePublicClientApplication(getNestedAppAuthConfig());
+      try {
+        await msalInstance.initialize();
+      } catch (initError) {
+        console.warn("[AB Book IQ] NAA initialize warning:", initError);
+      }
+      isNaaMode = true;
+      console.log("[AB Book IQ] Nested App Auth MSAL initialized");
+      return msalInstance;
+    } catch (naaError) {
+      console.warn("[AB Book IQ] NAA init failed, using popup fallback:", naaError);
+    }
   }
 
-  console.log("[AB Book IQ] Standard MSAL initialized with popup auth");
+  msalInstance = await initializeStandardMsal();
   return msalInstance;
+}
+
+export function isUsingNestedAppAuth(): boolean {
+  return isNaaMode;
 }
 
 /**
@@ -174,45 +247,79 @@ export async function initializeMsal(): Promise<IPublicClientApplication> {
  */
 export function getAccount(): AccountInfo | null {
   if (!msalInstance) return null;
+  try {
+    const active = msalInstance.getActiveAccount();
+    if (active) return active;
+  } catch {
+    // getActiveAccount is supported by NAA, but be defensive.
+  }
   const accounts = msalInstance.getAllAccounts();
   return accounts.length > 0 ? accounts[0] : null;
 }
 
-/**
- * Acquire a token for Microsoft Graph
- */
-export async function acquireGraphToken(): Promise<string> {
+async function acquireSilentResult(): Promise<AuthenticationResult> {
   if (!msalInstance) {
     await initializeMsal();
   }
 
-  const account = getAccount();
-  const request = {
-    scopes: GRAPH_SCOPES,
-    account: account || undefined,
-  };
+  const cached = getAccount();
+  const request = tokenRequest(cached);
+  try {
+    const response = await msalInstance!.acquireTokenSilent(request);
+    setActiveAccountSafe(response.account);
+    return response;
+  } catch (silentError) {
+    await clearCacheIfUnrecoverableGrant(silentError);
+    if (msalInstance && isInteractionRequiredError(silentError)) {
+      try {
+        const ssoResponse = await msalInstance.ssoSilent(tokenRequest(getAccount()));
+        setActiveAccountSafe(ssoResponse.account);
+        return ssoResponse;
+      } catch (ssoError) {
+        await clearCacheIfUnrecoverableGrant(ssoError);
+        throw ssoError;
+      }
+    }
+    throw silentError;
+  }
+}
+
+/**
+ * Try to establish a session without opening a popup.
+ * Returns the account on success, or null when interaction is required.
+ */
+export async function trySilentSignIn(): Promise<AccountInfo | null> {
+  if (!msalInstance) {
+    await initializeMsal();
+  }
 
   try {
-    // Try silent token acquisition first
-    const response: AuthenticationResult =
-      await msalInstance!.acquireTokenSilent(request);
-    return response.accessToken;
+    const response = await acquireSilentResult();
+    return response.account ?? getAccount();
   } catch (error) {
-    if (error instanceof InteractionRequiredAuthError) {
-      // Need interactive login - use popup with redirectUri
-      const popupRequest = {
-        ...request,
-        redirectUri: requireRedirectUri(),
-      };
-      const response = await msalInstance!.acquireTokenPopup(popupRequest);
-      return response.accessToken;
+    if (isInteractionRequiredError(error) || isUnrecoverableInvalidGrant(error)) {
+      return null;
     }
     throw error;
   }
 }
 
 /**
- * Sign in the user
+ * Acquire a token for Microsoft Graph. Silent only.
+ * Callers must route InteractionRequiredAuthError to the Sign In screen
+ * instead of opening a popup outside a user click.
+ */
+export async function acquireGraphToken(): Promise<string> {
+  if (!msalInstance) {
+    await initializeMsal();
+  }
+
+  const response = await acquireSilentResult();
+  return response.accessToken;
+}
+
+/**
+ * Interactive sign-in. Must be called from a user click so the popup is not blocked.
  */
 export async function signIn(): Promise<AccountInfo | null> {
   if (!msalInstance) {
@@ -220,35 +327,31 @@ export async function signIn(): Promise<AccountInfo | null> {
   }
 
   try {
-    const response = await msalInstance!.loginPopup({
-      scopes: GRAPH_SCOPES,
-      redirectUri: requireRedirectUri(),
-    });
-    failedSignInCount = 0;
+    const response = await msalInstance!.loginPopup(popupRequest(getAccount()));
+    setActiveAccountSafe(response.account);
     return response.account;
   } catch (error) {
-    failedSignInCount += 1;
     console.error("[AB Book IQ] Sign in failed:", error);
-
-    let cacheCleared = false;
-    if (failedSignInCount >= 2) {
-      await clearMsalCache();
-      failedSignInCount = 0;
-      cacheCleared = true;
-    }
-
-    throw formatSignInError(error, cacheCleared);
+    // Closing, blocking, or failing the popup is not a reason to wipe cached tokens.
+    throw formatSignInError(error);
   }
 }
 
 /**
- * Sign out the user
+ * Sign out the user and clear cached tokens.
  */
 export async function signOut(): Promise<void> {
-  if (!msalInstance) return;
-  const account = getAccount();
-  if (account) {
-    await msalInstance.logoutPopup({ account });
+  try {
+    if (msalInstance) {
+      const account = getAccount();
+      if (account && !isNaaMode) {
+        await msalInstance.logoutPopup({ account });
+      }
+    }
+  } catch (err) {
+    console.warn("[AB Book IQ] Sign out warning:", err);
+  } finally {
+    await clearMsalCache();
   }
 }
 
@@ -257,4 +360,14 @@ export async function signOut(): Promise<void> {
  */
 export function isSignedIn(): boolean {
   return getAccount() !== null;
+}
+
+/** Test-only: replace MSAL constructors and drop in-memory state. */
+export function __resetMsalForTests(overrides?: Partial<MsalRuntime>): void {
+  msalInstance = null;
+  isNaaMode = false;
+  runtime = {
+    ...defaultRuntime,
+    ...overrides,
+  };
 }

@@ -10,7 +10,13 @@ import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
 import { OfficeSelector, OfficeToggle } from "./OfficeSelector";
 
-import { initializeMsal, signIn, isSignedIn, getAccount } from "@/lib/outlook-addin/auth/msal";
+import {
+  initializeMsal,
+  signIn,
+  getAccount,
+  trySilentSignIn,
+  routeAuthFailure,
+} from "@/lib/outlook-addin/auth/msal";
 import { initializeOffice, isInOutlook, onAppointmentChanged } from "@/lib/outlook-addin/office/eventHandlers";
 import { getMeetingWindow, getRoomPresence, getPersistedBookedRooms, type MeetingWindow } from "@/lib/outlook-addin/office/appointment";
 import { resolveOffice, setCachedOfficePreference, getAllOffices, type OfficeResolutionResult } from "@/lib/outlook-addin/domain/officeResolver";
@@ -33,6 +39,17 @@ export function TaskPane() {
   const [bookedRoomIds, setBookedRoomIds] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const handleAuthSensitiveError = useCallback((err: unknown, fallback: string) => {
+    console.error("[AB Book IQ] Auth-sensitive error:", err);
+    if (routeAuthFailure(err) === "sign-in") {
+      setError(null);
+      setAppState("sign-in");
+      return;
+    }
+    setError(err instanceof Error ? err.message : fallback);
+    setAppState("error");
+  }, []);
+
   // Initialize the add-in
   useEffect(() => {
     async function initialize() {
@@ -46,11 +63,12 @@ export function TaskPane() {
         // Initialize Office.js
         await initializeOffice();
 
-        // Initialize MSAL
+        // Initialize MSAL (NAA when the host supports it, popup fallback otherwise)
         await initializeMsal();
 
-        // Check if signed in
-        if (!isSignedIn()) {
+        // Silent first. Only show Sign In when interaction is required.
+        const silentAccount = await trySilentSignIn();
+        if (!silentAccount) {
           setAppState("sign-in");
           return;
         }
@@ -59,6 +77,10 @@ export function TaskPane() {
         await loadOfficeAndRooms();
       } catch (err) {
         console.error("[AB Book IQ] Initialization error:", err);
+        if (routeAuthFailure(err) === "sign-in") {
+          setAppState("sign-in");
+          return;
+        }
         setError(err instanceof Error ? err.message : "Failed to initialize");
         setAppState("error");
       }
@@ -72,11 +94,16 @@ export function TaskPane() {
     if (!isInOutlook()) return;
 
     const unsubscribe = onAppointmentChanged(async () => {
-      // Refresh rooms when appointment time changes - always fetch fresh data
+      // Refresh rooms when appointment time changes - always fetch fresh data.
+      // Do not open a login popup from this host callback.
       if (selectedOffice && appState === "ready") {
-        const freshWindow = await getMeetingWindow();
-        setMeetingWindow(freshWindow);
-        loadRooms(selectedOffice, freshWindow);
+        try {
+          const freshWindow = await getMeetingWindow();
+          setMeetingWindow(freshWindow);
+          await loadRooms(selectedOffice, freshWindow);
+        } catch (err) {
+          handleAuthSensitiveError(err, "Failed to load rooms");
+        }
       }
     });
 
@@ -122,11 +149,9 @@ export function TaskPane() {
       // Pass the window directly to avoid stale state
       await loadRooms(office, window);
     } catch (err) {
-      console.error("[AB Book IQ] Load error:", err);
-      setError(err instanceof Error ? err.message : "Failed to load rooms");
-      setAppState("error");
+      handleAuthSensitiveError(err, "Failed to load rooms");
     }
-  }, []);
+  }, [handleAuthSensitiveError]);
 
   const loadRooms = async (office: OfficeConfig, windowOverride?: MeetingWindow) => {
     // Use provided window or fall back to state
@@ -183,9 +208,7 @@ export function TaskPane() {
       setRooms(rankedRooms);
       setAppState("ready");
     } catch (err) {
-      console.error("[AB Book IQ] Room load error:", err);
-      setError(err instanceof Error ? err.message : "Failed to load rooms");
-      setAppState("error");
+      handleAuthSensitiveError(err, "Failed to load rooms");
     } finally {
       setIsRefreshing(false);
     }
@@ -282,8 +305,7 @@ export function TaskPane() {
         setMeetingWindow(freshWindow);
         await loadRooms(selectedOffice, freshWindow);
       } catch (err) {
-        console.error("[AB Book IQ] Refresh error:", err);
-        setError(err instanceof Error ? err.message : "Failed to refresh");
+        handleAuthSensitiveError(err, "Failed to refresh");
       } finally {
         setIsRefreshing(false);
       }

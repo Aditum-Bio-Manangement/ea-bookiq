@@ -5,11 +5,16 @@
 export {
   initializeMsal,
   acquireGraphToken,
+  trySilentSignIn,
   signIn,
   signOut,
   isSignedIn,
   getAccount,
   clearMsalCache,
+  isInteractionRequiredError,
+  routeAuthFailure,
+  isUsingNestedAppAuth,
+  getBrokerRedirectUri,
 } from "./auth/msal";
 
 // Config
