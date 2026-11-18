@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "npx --yes serve@14 out -l tcp://0.0.0.0:${PORT:-3000}",
     "lint": "eslint .",
-    "test": "NEXT_PUBLIC_REDIRECT_URI=https://roomiq.aditumbio.com/taskpane NEXT_PUBLIC_AZURE_CLIENT_ID=test-client-id NEXT_PUBLIC_AZURE_TENANT_ID=test-tenant-id tsx --test lib/outlook-addin/auth/*.test.ts"
+    "test": "NEXT_PUBLIC_REDIRECT_URI=https://roomiq.aditumbio.com/taskpane NEXT_PUBLIC_AZURE_CLIENT_ID=test-client-id NEXT_PUBLIC_AZURE_TENANT_ID=test-tenant-id tsx --test 'lib/outlook-addin/**/*.test.ts'"
   },
   "dependencies": {
     "@azure/msal-browser": "^3.27.0",

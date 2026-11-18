@@ -1,84 +1,129 @@
 import { getGraphClient } from "./graphClient";
-import { OFFICE_CONFIGS, type OfficeConfig } from "../config/offices";
+import {
+  getConfiguredGroupIds,
+  getConfiguredOffices,
+  type OfficeConfig,
+} from "../config/offices";
 
-interface GraphGroup {
-  id: string;
-  displayName: string;
-  mail: string | null;
-  securityEnabled: boolean;
-  mailEnabled: boolean;
+/** Graph accepts at most 20 ids per /me/checkMemberGroups request. */
+export const CHECK_MEMBER_GROUPS_BATCH_SIZE = 20;
+
+export interface DirectoryAccessResult {
+  authorized: boolean;
+  offices: OfficeConfig[];
 }
 
-// Target groups for office identification - only looking for these specific groups
-const EA_CAMBRIDGE_EMAIL = "ea-cambridge@aditumbio.com";
-const EA_OAKLAND_EMAIL = "ea-oakland@aditumbio.com";
+export interface CheckMemberGroupsResponse {
+  value?: string[];
+  "@odata.nextLink"?: string;
+}
 
 /**
- * Check if the user is a member of a specific group by email
- * Uses memberOf API which works for all group types including distribution lists
+ * Minimal Graph surface used for membership checks so unit tests can supply a fake client.
  */
-async function checkGroupMembership(groupEmail: string): Promise<boolean> {
-  const client = await getGraphClient();
+export interface GraphMemberGroupsClient {
+  api: (path: string) => {
+    post: (body: { groupIds: string[] }) => Promise<CheckMemberGroupsResponse>;
+    get: () => Promise<CheckMemberGroupsResponse>;
+  };
+}
 
-  try {
-    // Get all groups the user is a member of (including transitive membership)
-    // This works for security groups, Microsoft 365 groups, and distribution lists
-    const memberOfResponse = await client
-      .api("/me/memberOf")
-      .select("id,displayName,mail,mailEnabled,securityEnabled")
-      .top(999)
-      .get();
+/**
+ * Decide authorization and office list from already-resolved group object ids.
+ *
+ * Office (Cambridge / Oakland) comes only from EA group membership. Membership in an
+ * access group such as ABM-SG-FTE authorizes the user; if they have no EA group they
+ * receive every office so the task pane can offer a site picker.
+ */
+export function evaluateDirectoryAccess(
+  memberGroupIds: Iterable<string>,
+  offices: OfficeConfig[] = getConfiguredOffices(),
+  authorizedGroupIds: string[] = getConfiguredGroupIds().authorized
+): DirectoryAccessResult {
+  const membership = new Set(
+    Array.from(memberGroupIds, (id) => id.trim().toLowerCase()).filter(Boolean)
+  );
 
-    if (!memberOfResponse.value || memberOfResponse.value.length === 0) {
-      console.log(`[AB Book IQ] User has no group memberships`);
-      return false;
-    }
+  const matchedOffices = offices.filter((office) =>
+    membership.has(office.securityGroupId.toLowerCase())
+  );
 
-    // Check if any of the user's groups match the target email
-    const normalizedTargetEmail = groupEmail.toLowerCase();
-    const matchingGroup = memberOfResponse.value.find((group: any) => {
-      const groupMail = group.mail?.toLowerCase();
-      return groupMail === normalizedTargetEmail;
+  const inAuthorizedGroup = authorizedGroupIds.some((id) =>
+    membership.has(id.toLowerCase())
+  );
+
+  const authorized = inAuthorizedGroup || matchedOffices.length > 0;
+
+  return {
+    authorized,
+    offices: authorized && matchedOffices.length === 0 ? offices : matchedOffices,
+  };
+}
+
+/**
+ * Transitive membership check for a known set of group object ids.
+ *
+ * Uses POST /me/checkMemberGroups (GroupMember.Read.All). Unlike GET /me/memberOf,
+ * this is transitive (nested groups) and matches by object id, so groups with no
+ * mail (ABM-SG-FTE) work. IDs are sent in batches of 20; @odata.nextLink is followed.
+ */
+export async function fetchMatchingGroupIds(
+  client: GraphMemberGroupsClient,
+  groupIds: string[]
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(groupIds.map((id) => id.trim()).filter(Boolean))];
+  const matched = new Set<string>();
+
+  for (let i = 0; i < uniqueIds.length; i += CHECK_MEMBER_GROUPS_BATCH_SIZE) {
+    const batch = uniqueIds.slice(i, i + CHECK_MEMBER_GROUPS_BATCH_SIZE);
+    let response = await client.api("/me/checkMemberGroups").post({
+      groupIds: batch,
     });
 
-    if (matchingGroup) {
-      console.log(`[AB Book IQ] User IS a member of ${matchingGroup.displayName} (${groupEmail})`);
-      return true;
-    }
+    while (response) {
+      for (const id of response.value ?? []) {
+        if (id) matched.add(id.toLowerCase());
+      }
 
-    console.log(`[AB Book IQ] User is NOT a member of ${groupEmail}`);
-    return false;
-  } catch (err) {
-    console.error(`[AB Book IQ] Error checking membership for ${groupEmail}:`, err);
-    return false;
+      const nextLink = response["@odata.nextLink"];
+      if (!nextLink) break;
+      response = await client.api(nextLink).get();
+    }
   }
+
+  return matched;
+}
+
+export async function resolveUserAccess(): Promise<DirectoryAccessResult> {
+  const offices = getConfiguredOffices();
+  const { authorized: authorizedGroupIds } = getConfiguredGroupIds();
+  const groupIdsToCheck = [
+    ...offices.map((office) => office.securityGroupId),
+    ...authorizedGroupIds,
+  ];
+
+  const client = await getGraphClient();
+  const memberGroupIds = await fetchMatchingGroupIds(client, groupIdsToCheck);
+  const access = evaluateDirectoryAccess(memberGroupIds, offices, authorizedGroupIds);
+  console.log(
+    "[AB Book IQ] checkMemberGroups matched",
+    [...memberGroupIds],
+    "authorized:",
+    access.authorized,
+    "offices:",
+    access.offices.map((office) => office.name)
+  );
+  return access;
 }
 
 /**
- * Determine which office(s) the user belongs to based on EA-Cambridge or EA-Oakland group membership
- * Directly checks membership in ea-cambridge@aditumbio.com and ea-oakland@aditumbio.com
+ * Offices the signed-in user may book. Empty means not authorized.
+ * FTE-only users receive both Cambridge and Oakland.
  */
 export async function resolveUserOffices(): Promise<OfficeConfig[]> {
-  const matchedOffices: OfficeConfig[] = [];
-
-  // Check Cambridge membership
-  console.log("[AB Book IQ] Checking membership in EA-Cambridge...");
-  const isCambridgeMember = await checkGroupMembership(EA_CAMBRIDGE_EMAIL);
-  if (isCambridgeMember) {
-    console.log("[AB Book IQ] User IS a member of EA-Cambridge");
-    matchedOffices.push(OFFICE_CONFIGS.cambridge);
-  }
-
-  // Check Oakland membership
-  console.log("[AB Book IQ] Checking membership in EA-Oakland...");
-  const isOaklandMember = await checkGroupMembership(EA_OAKLAND_EMAIL);
-  if (isOaklandMember) {
-    console.log("[AB Book IQ] User IS a member of EA-Oakland");
-    matchedOffices.push(OFFICE_CONFIGS.oakland);
-  }
-
-  console.log("[AB Book IQ] Resolved offices:", matchedOffices.map(o => o.name));
-  return matchedOffices;
+  const access = await resolveUserAccess();
+  if (!access.authorized) return [];
+  return access.offices;
 }
 
 /**
