@@ -128,7 +128,7 @@ export function TaskPane() {
       const result = await resolveOffice();
       setOfficeResult(result);
 
-      // User is not a member of ea-cambridge or ea-oakland groups
+      // Not in ABM-SG-FTE (or configured access groups) and not in an EA office group
       if (result.type === "none") {
         setAppState("not-authorized");
         return;
@@ -375,7 +375,7 @@ export function TaskPane() {
           You are not a member of the required security groups to use this add-in.
         </p>
         <p className="mt-2 text-xs text-muted-foreground text-center max-w-[280px]">
-          Please contact your IT administrator to be added to the EA-Cambridge or EA-Oakland group.
+          Full-time employees and members of EA-Cambridge or EA-Oakland are authorized. Contact IT if you should have access.
         </p>
         <Button variant="outline" onClick={handleRefresh} className="mt-4">
           <RefreshCw className="size-4 mr-2" />

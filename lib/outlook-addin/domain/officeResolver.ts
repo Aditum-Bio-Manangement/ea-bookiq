@@ -1,5 +1,5 @@
 import { resolveUserOffices } from "../graph/groups";
-import { OFFICE_CONFIGS, STORAGE_KEYS, type OfficeConfig } from "../config/offices";
+import { getConfiguredOffices, STORAGE_KEYS, type OfficeConfig } from "../config/offices";
 
 export type OfficeResolutionResult =
   | { type: "single"; office: OfficeConfig }
@@ -7,11 +7,11 @@ export type OfficeResolutionResult =
   | { type: "none" };
 
 /**
- * Resolve which office the user should default to
+ * Map an authorized office list to the task-pane flow.
+ * Zero offices → Access Denied. One office → that site. Several (EA member of
+ * both, or FTE-only) → picker, honoring a cached preference when present.
  */
-export async function resolveOffice(): Promise<OfficeResolutionResult> {
-  const offices = await resolveUserOffices();
-
+export function resolveOfficeFromList(offices: OfficeConfig[]): OfficeResolutionResult {
   if (offices.length === 0) {
     return { type: "none" };
   }
@@ -20,7 +20,6 @@ export async function resolveOffice(): Promise<OfficeResolutionResult> {
     return { type: "single", office: offices[0] };
   }
 
-  // Multiple offices - check for cached preference
   const cachedOfficeId = getCachedOfficePreference();
   const cachedOffice = cachedOfficeId
     ? offices.find((o) => o.id === cachedOfficeId)
@@ -31,6 +30,13 @@ export async function resolveOffice(): Promise<OfficeResolutionResult> {
     offices,
     cached: cachedOffice,
   };
+}
+
+/**
+ * Resolve which office the user should default to
+ */
+export async function resolveOffice(): Promise<OfficeResolutionResult> {
+  return resolveOfficeFromList(await resolveUserOffices());
 }
 
 /**
@@ -61,12 +67,12 @@ export function clearCachedOfficePreference(): void {
  * Get office config by ID
  */
 export function getOfficeById(officeId: string): OfficeConfig | undefined {
-  return OFFICE_CONFIGS[officeId];
+  return getConfiguredOffices().find((office) => office.id === officeId);
 }
 
 /**
  * Get all available offices
  */
 export function getAllOffices(): OfficeConfig[] {
-  return Object.values(OFFICE_CONFIGS);
+  return getConfiguredOffices();
 }

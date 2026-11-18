@@ -34,6 +34,9 @@ jobs:
           NEXT_PUBLIC_AZURE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AZURE_CLIENT_ID || secrets.NEXT_PUBLIC_AZURE_CLIENT_ID }}
           NEXT_PUBLIC_AZURE_TENANT_ID: ${{ vars.NEXT_PUBLIC_AZURE_TENANT_ID || secrets.NEXT_PUBLIC_AZURE_TENANT_ID }}
           NEXT_PUBLIC_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_REDIRECT_URI || secrets.NEXT_PUBLIC_REDIRECT_URI }}
+          NEXT_PUBLIC_EA_CAMBRIDGE_GROUP_ID: ${{ vars.NEXT_PUBLIC_EA_CAMBRIDGE_GROUP_ID }}
+          NEXT_PUBLIC_EA_OAKLAND_GROUP_ID: ${{ vars.NEXT_PUBLIC_EA_OAKLAND_GROUP_ID }}
+          NEXT_PUBLIC_AUTHORIZED_GROUP_IDS: ${{ vars.NEXT_PUBLIC_AUTHORIZED_GROUP_IDS }}
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

@@ -18,12 +18,21 @@ export {
 } from "./auth/msal";
 
 // Config
-export { OFFICE_CONFIGS, MSAL_CONFIG, GRAPH_SCOPES, STORAGE_KEYS } from "./config/offices";
+export {
+  OFFICE_CONFIGS,
+  MSAL_CONFIG,
+  GRAPH_SCOPES,
+  STORAGE_KEYS,
+  DEFAULT_GROUP_IDS,
+  getConfiguredGroupIds,
+  getConfiguredOffices,
+} from "./config/offices";
 export type { OfficeConfig } from "./config/offices";
 
 // Graph Services
 export { getGraphClient, resetGraphClient } from "./graph/graphClient";
-export { resolveUserOffices, isUserInOffice } from "./graph/groups";
+export { resolveUserOffices, isUserInOffice, resolveUserAccess } from "./graph/groups";
+export type { DirectoryAccessResult } from "./graph/groups";
 export { getRoomLists, getRoomsForOffice, getRoomsByBuilding } from "./graph/places";
 export type { Room, RoomList } from "./graph/places";
 export { getSchedule, checkRoomAvailability, filterAvailableRooms, sortRoomsByPreference } from "./graph/schedule";
@@ -59,6 +68,7 @@ export {
 // Domain Logic
 export {
   resolveOffice,
+  resolveOfficeFromList,
   getCachedOfficePreference,
   setCachedOfficePreference,
   clearCachedOfficePreference,
